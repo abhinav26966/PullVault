@@ -1,0 +1,27 @@
+{
+  "name": "pullvault",
+  "version": "0.0.0",
+  "private": true,
+  "description": "PullVault — Pokemon TCG paper-trading platform (work trial)",
+  "packageManager": "pnpm@10.12.4",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "tsx": "^4.19.0",
+    "prettier": "^3.3.0",
+    "vitest": "^2.0.0",
+    "eslint": "^9.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  }
+}

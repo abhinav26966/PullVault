@@ -1,0 +1,10 @@
+{
+  "name": "@pullvault/web",
+  "version": "0.0.0",
+  "private": true,
+  "dependencies": {
+    "@pullvault/db": "workspace:*",
+    "@pullvault/domain": "workspace:*",
+    "@pullvault/shared": "workspace:*"
+  }
+}
