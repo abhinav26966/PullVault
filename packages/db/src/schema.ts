@@ -1,0 +1,350 @@
+import { sql } from 'drizzle-orm';
+import {
+  bigint,
+  boolean,
+  check,
+  index,
+  integer,
+  jsonb,
+  pgEnum,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
+
+// ─── Enums ──────────────────────────────────────────────────────────────────
+// Prefixed `pullvault_` to avoid colliding with anything else in the public schema.
+
+export const ledgerTypeEnum = pgEnum('pullvault_ledger_type', [
+  'SIGNUP_BONUS',
+  'PACK_PURCHASE',
+  'LISTING_PURCHASE',
+  'LISTING_SALE',
+  'LISTING_FEE',
+  'AUCTION_HOLD',
+  'AUCTION_RELEASE',
+  'AUCTION_SETTLE_BUYER',
+  'AUCTION_SETTLE_SELLER',
+  'AUCTION_FEE',
+]);
+
+export const rarityEnum = pgEnum('pullvault_rarity', ['C', 'U', 'R', 'E', 'L']);
+
+export const userCardStateEnum = pgEnum('pullvault_user_card_state', [
+  'OWNED',
+  'LISTED',
+  'AUCTIONED',
+  'TRANSFERRED',
+]);
+
+export const acquiredViaEnum = pgEnum('pullvault_acquired_via', [
+  'PACK',
+  'LISTING',
+  'AUCTION',
+]);
+
+export const tierEnum = pgEnum('pullvault_tier', ['BRONZE', 'SILVER', 'GOLD']);
+
+export const dropStateEnum = pgEnum('pullvault_drop_state', [
+  'SCHEDULED',
+  'OPEN',
+  'SOLD_OUT',
+  'CLOSED',
+]);
+
+export const slotTypeEnum = pgEnum('pullvault_slot_type', [
+  'FILLER',
+  'RARE_FLOOR',
+  'HIT',
+  'JACKPOT',
+]);
+
+export const listingStateEnum = pgEnum('pullvault_listing_state', [
+  'ACTIVE',
+  'SOLD',
+  'CANCELLED',
+]);
+
+export const auctionStateEnum = pgEnum('pullvault_auction_state', [
+  'OPEN',
+  'CLOSED',
+  'SETTLED',
+]);
+
+// ─── Tables ─────────────────────────────────────────────────────────────────
+// Order: dependency-first so `drizzle-kit generate` produces a clean,
+// readable migration. Foreign key targets are declared before their referrers.
+
+// §5.1 — users
+export const users = pgTable('users', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  email: text('email').notNull().unique(),
+  passwordHash: text('password_hash').notNull(),
+  displayName: text('display_name').notNull().unique(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// §5.1 — wallets (one-to-one with users)
+export const wallets = pgTable(
+  'wallets',
+  {
+    userId: uuid('user_id')
+      .primaryKey()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    balanceAvailable: bigint('balance_available', { mode: 'number' })
+      .notNull()
+      .default(0),
+    balanceHeld: bigint('balance_held', { mode: 'number' }).notNull().default(0),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    availableNonNeg: check(
+      'wallets_balance_available_nonneg',
+      sql`${t.balanceAvailable} >= 0`,
+    ),
+    heldNonNeg: check('wallets_balance_held_nonneg', sql`${t.balanceHeld} >= 0`),
+  }),
+);
+
+// §5.3 — cards (catalog)
+export const cards = pgTable(
+  'cards',
+  {
+    id: text('id').primaryKey(), // pokemontcg.io card id, e.g. "swsh1-1"
+    name: text('name').notNull(),
+    setId: text('set_id').notNull(),
+    setName: text('set_name').notNull(),
+    number: text('number').notNull(),
+    rarityRaw: text('rarity_raw').notNull(),
+    rarity: rarityEnum('rarity').notNull(),
+    imageUrl: text('image_url').notNull(),
+    imageUrlSmall: text('image_url_small').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    rarityIdx: index('cards_rarity_idx').on(t.rarity),
+    setIdIdx: index('cards_set_id_idx').on(t.setId),
+  }),
+);
+
+// §5.3 — card_prices (one-to-one with cards, mutated by the price engine)
+export const cardPrices = pgTable('card_prices', {
+  cardId: text('card_id')
+    .primaryKey()
+    .references(() => cards.id, { onDelete: 'cascade' }),
+  price: bigint('price', { mode: 'number' }).notNull(),
+  baseline: bigint('baseline', { mode: 'number' }).notNull(),
+  lastRealPollAt: timestamp('last_real_poll_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// §5.5 — pack_drops
+export const packDrops = pgTable(
+  'pack_drops',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tier: tierEnum('tier').notNull(),
+    priceCents: bigint('price_cents', { mode: 'number' }).notNull(),
+    inventoryTotal: integer('inventory_total').notNull(),
+    inventoryRemaining: integer('inventory_remaining').notNull(),
+    startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+    state: dropStateEnum('state').notNull().default('SCHEDULED'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    inventoryNonNeg: check(
+      'pack_drops_inventory_remaining_nonneg',
+      sql`${t.inventoryRemaining} >= 0`,
+    ),
+    stateStartsAtIdx: index('pack_drops_state_starts_at_idx').on(t.state, t.startsAt),
+  }),
+);
+
+// §5.4 — user_cards (ownership instances; same card_id may appear many times)
+export const userCards = pgTable(
+  'user_cards',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => users.id),
+    cardId: text('card_id')
+      .notNull()
+      .references(() => cards.id),
+    acquiredAt: timestamp('acquired_at', { withTimezone: true }).notNull().defaultNow(),
+    acquiredPrice: bigint('acquired_price', { mode: 'number' }).notNull(),
+    acquiredVia: acquiredViaEnum('acquired_via').notNull(),
+    state: userCardStateEnum('state').notNull().default('OWNED'),
+  },
+  (t) => ({
+    ownerStateIdx: index('user_cards_owner_state_idx').on(t.ownerId, t.state),
+    cardIdIdx: index('user_cards_card_id_idx').on(t.cardId),
+  }),
+);
+
+// §5.6 — packs (a purchased pack)
+export const packs = pgTable(
+  'packs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => users.id),
+    dropId: uuid('drop_id')
+      .notNull()
+      .references(() => packDrops.id),
+    tier: tierEnum('tier').notNull(),
+    pricePaid: bigint('price_paid', { mode: 'number' }).notNull(),
+    purchasedAt: timestamp('purchased_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    openedAt: timestamp('opened_at', { withTimezone: true }),
+    packEvAtPurchase: bigint('pack_ev_at_purchase', { mode: 'number' }).notNull(),
+  },
+  (t) => ({
+    ownerIdx: index('packs_owner_idx').on(t.ownerId),
+    dropIdx: index('packs_drop_id_idx').on(t.dropId),
+  }),
+);
+
+// §5.6 — pack_cards (slots inside a purchased pack, sorted by reveal position)
+export const packCards = pgTable(
+  'pack_cards',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    packId: uuid('pack_id')
+      .notNull()
+      .references(() => packs.id, { onDelete: 'cascade' }),
+    cardId: text('card_id')
+      .notNull()
+      .references(() => cards.id),
+    position: integer('position').notNull(),
+    slotType: slotTypeEnum('slot_type').notNull(),
+    rarityAtPull: rarityEnum('rarity_at_pull').notNull(),
+    revealed: boolean('revealed').notNull().default(false),
+    revealedAt: timestamp('revealed_at', { withTimezone: true }),
+  },
+  (t) => ({
+    packPositionIdx: index('pack_cards_pack_position_idx').on(t.packId, t.position),
+  }),
+);
+
+// §5.7 — listings (fixed-price marketplace)
+export const listings = pgTable(
+  'listings',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sellerId: uuid('seller_id')
+      .notNull()
+      .references(() => users.id),
+    userCardId: uuid('user_card_id')
+      .notNull()
+      .references(() => userCards.id),
+    price: bigint('price', { mode: 'number' }).notNull(),
+    state: listingStateEnum('state').notNull().default('ACTIVE'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    soldAt: timestamp('sold_at', { withTimezone: true }),
+    buyerId: uuid('buyer_id').references(() => users.id),
+  },
+  (t) => ({
+    // Partial unique index: at most one ACTIVE listing per user_card.
+    // Uses raw `sql` template to avoid the eq() parameterization bug in
+    // drizzle-kit (issue #4790).
+    activeUserCardUq: uniqueIndex('listings_active_user_card_uq')
+      .on(t.userCardId)
+      .where(sql`${t.state} = 'ACTIVE'`),
+    stateCreatedIdx: index('listings_state_created_idx').on(t.state, t.createdAt),
+    sellerIdx: index('listings_seller_idx').on(t.sellerId),
+  }),
+);
+
+// §5.8 — auctions
+export const auctions = pgTable(
+  'auctions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sellerId: uuid('seller_id')
+      .notNull()
+      .references(() => users.id),
+    userCardId: uuid('user_card_id')
+      .notNull()
+      .references(() => userCards.id),
+    startingBid: bigint('starting_bid', { mode: 'number' }).notNull(),
+    currentBidAmount: bigint('current_bid_amount', { mode: 'number' }),
+    currentBidUserId: uuid('current_bid_user_id').references(() => users.id),
+    startsAt: timestamp('starts_at', { withTimezone: true }).notNull().defaultNow(),
+    endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
+    state: auctionStateEnum('state').notNull().default('OPEN'),
+    settledAt: timestamp('settled_at', { withTimezone: true }),
+  },
+  (t) => ({
+    // Partial unique index: at most one OPEN auction per user_card.
+    openUserCardUq: uniqueIndex('auctions_open_user_card_uq')
+      .on(t.userCardId)
+      .where(sql`${t.state} = 'OPEN'`),
+    stateEndsAtIdx: index('auctions_state_ends_at_idx').on(t.state, t.endsAt),
+    sellerIdx: index('auctions_seller_idx').on(t.sellerId),
+  }),
+);
+
+// §5.8 — bids (immutable history)
+export const bids = pgTable(
+  'bids',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    auctionId: uuid('auction_id')
+      .notNull()
+      .references(() => auctions.id, { onDelete: 'cascade' }),
+    bidderId: uuid('bidder_id')
+      .notNull()
+      .references(() => users.id),
+    amount: bigint('amount', { mode: 'number' }).notNull(),
+    placedAt: timestamp('placed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    // (auction_id, placed_at DESC) for "most recent first" bid history per
+    // ARCHITECTURE §5.8.
+    auctionPlacedIdx: index('bids_auction_placed_idx').on(
+      t.auctionId,
+      t.placedAt.desc(),
+    ),
+  }),
+);
+
+// §5.2 — wallet_ledger (append-only audit trail)
+export const walletLedger = pgTable(
+  'wallet_ledger',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    type: ledgerTypeEnum('type').notNull(),
+    amount: bigint('amount', { mode: 'number' }).notNull(),
+    packId: uuid('pack_id').references(() => packs.id),
+    listingId: uuid('listing_id').references(() => listings.id),
+    auctionId: uuid('auction_id').references(() => auctions.id),
+    bidId: uuid('bid_id').references(() => bids.id),
+    meta: jsonb('meta'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    userCreatedIdx: index('wallet_ledger_user_created_idx').on(t.userId, t.createdAt),
+    typeCreatedIdx: index('wallet_ledger_type_created_idx').on(t.type, t.createdAt),
+    auctionIdx: index('wallet_ledger_auction_idx').on(t.auctionId),
+    listingIdx: index('wallet_ledger_listing_idx').on(t.listingId),
+  }),
+);
+
+// ─── Constants ──────────────────────────────────────────────────────────────
+
+/**
+ * Fixed system user used as the counterparty for platform-revenue ledger entries
+ * (LISTING_FEE, AUCTION_FEE). Inserted by the price-pipeline initial run.
+ * House revenue is just "the platform user's ledger entries summed."
+ */
+export const PLATFORM_USER_ID = '00000000-0000-0000-0000-000000000001' as const;
