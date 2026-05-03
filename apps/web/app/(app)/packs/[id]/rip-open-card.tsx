@@ -2,6 +2,8 @@
 
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
+import toast from 'react-hot-toast';
+import { TIER_CONFIG } from '@pullvault/domain';
 import { openPack } from './actions';
 
 const TIER_BG: Record<'BRONZE' | 'SILVER' | 'GOLD', string> = {
@@ -30,6 +32,7 @@ export default function RipOpenCard({ packId, tier, pricePaid }: Props) {
     startTransition(async () => {
       try {
         await openPack(packId);
+        toast.success(`${TIER_CONFIG[tier].cardCount} cards added to your collection`);
         router.refresh();
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to open pack');

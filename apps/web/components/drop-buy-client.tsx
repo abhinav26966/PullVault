@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import toast from 'react-hot-toast';
 import { useChannel } from '@/hooks/use-socket';
 
 interface InitialDrop {
@@ -65,6 +66,7 @@ export default function DropBuyClient({ initial }: { initial: InitialDrop }) {
         return;
       }
       if (j.packId) {
+        toast.success('Pack acquired — opening…');
         router.replace(`/packs/${j.packId}`);
         router.refresh();
       }

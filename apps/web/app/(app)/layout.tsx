@@ -1,9 +1,11 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
+import { Toaster } from 'react-hot-toast';
 import { eq } from 'drizzle-orm';
 import { db, wallets } from '@pullvault/db';
 import { getSessionUser } from '@/lib/auth';
 import LogoutButton from '@/components/logout-button';
+import UserToastSubscriber from '@/components/user-toast-subscriber';
 
 function fmtUsd(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
@@ -49,6 +51,22 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </div>
       </header>
       <main className="mx-auto max-w-5xl px-6 py-8">{children}</main>
+      <UserToastSubscriber userId={user.id} />
+      <Toaster
+        position="bottom-right"
+        toastOptions={{
+          duration: 3000,
+          style: {
+            background: '#18181b',
+            color: '#fafafa',
+            fontSize: '14px',
+            borderRadius: '6px',
+            padding: '10px 14px',
+          },
+          success: { iconTheme: { primary: '#22c55e', secondary: '#fafafa' } },
+          error: { iconTheme: { primary: '#ef4444', secondary: '#fafafa' } },
+        }}
+      />
     </div>
   );
 }

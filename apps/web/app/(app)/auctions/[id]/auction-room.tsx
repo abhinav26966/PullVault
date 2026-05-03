@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
+import toast from 'react-hot-toast';
 import { computeMinValidBid } from '@pullvault/domain';
 import { useChannel } from '@/hooks/use-socket';
 
@@ -229,7 +230,9 @@ export default function AuctionRoom({
       const j = (await res.json().catch(() => ({}))) as { message?: string };
       if (!res.ok) {
         setBidError(j.message ?? `Bid failed (${res.status})`);
+        return;
       }
+      toast.success(`Bid placed — ${fmtUsd(cents)}`);
     } finally {
       setBidBusy(false);
     }

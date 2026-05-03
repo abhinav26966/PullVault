@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import toast from 'react-hot-toast';
 
 function fmtUsd(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
@@ -18,7 +19,11 @@ export default function ListingActions({ listingId, isSeller, priceCents }: Prop
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function call(path: string, redirectOnSuccess: string): Promise<void> {
+  async function call(
+    path: string,
+    redirectOnSuccess: string,
+    successToast: string | null,
+  ): Promise<void> {
     setBusy(true);
     setError(null);
     try {
@@ -28,6 +33,7 @@ export default function ListingActions({ listingId, isSeller, priceCents }: Prop
         setError(j.message ?? `Request failed (${res.status})`);
         return;
       }
+      if (successToast) toast.success(successToast);
       router.replace(redirectOnSuccess);
       router.refresh();
     } finally {
@@ -39,7 +45,13 @@ export default function ListingActions({ listingId, isSeller, priceCents }: Prop
     return (
       <div className="space-y-2">
         <button
-          onClick={() => call(`/api/listings/${listingId}/cancel`, '/collection')}
+          onClick={() =>
+            call(
+              `/api/listings/${listingId}/cancel`,
+              '/collection',
+              'Listing cancelled',
+            )
+          }
           disabled={busy}
           className="bg-zinc-200 text-zinc-900 rounded px-6 py-3 hover:bg-zinc-300 disabled:opacity-50"
         >
@@ -53,7 +65,13 @@ export default function ListingActions({ listingId, isSeller, priceCents }: Prop
   return (
     <div className="space-y-2">
       <button
-        onClick={() => call(`/api/listings/${listingId}/buy`, '/collection')}
+        onClick={() =>
+          call(
+            `/api/listings/${listingId}/buy`,
+            '/collection',
+            `Card acquired for ${fmtUsd(priceCents)}`,
+          )
+        }
         disabled={busy}
         className="bg-zinc-900 text-white rounded px-6 py-3 hover:bg-zinc-800 disabled:opacity-50"
       >

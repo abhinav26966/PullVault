@@ -4,6 +4,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
+import toast from 'react-hot-toast';
 import { useChannel } from '@/hooks/use-socket';
 
 interface Item {
@@ -184,6 +185,7 @@ export default function CollectionClient({
         return;
       }
       if (j.listingId) {
+        toast.success(`Listed for ${fmtUsd(cents)}`);
         router.push(`/market/${j.listingId}`);
         router.refresh();
       }
@@ -239,6 +241,8 @@ export default function CollectionClient({
         return;
       }
       if (j.auctionId) {
+        const minutes = Math.round(auctionDuration / 60);
+        toast.success(`Auction live — runs for ${minutes}m`);
         router.push(`/auctions/${j.auctionId}`);
         router.refresh();
       }

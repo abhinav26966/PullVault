@@ -17,6 +17,8 @@ interface SettleResult {
   winnerId: string | null;
   winnerDisplayName: string | null;
   finalBid: number | null;
+  sellerId: string | null;
+  netCents: number | null;
 }
 
 /**
@@ -62,6 +64,8 @@ async function settleOne(auctionId: string): Promise<SettleResult | null> {
         winnerId: null,
         winnerDisplayName: null,
         finalBid: null,
+        sellerId: a.sellerId,
+        netCents: null,
       };
     }
 
@@ -140,6 +144,8 @@ async function settleOne(auctionId: string): Promise<SettleResult | null> {
       winnerId: a.currentBidUserId,
       winnerDisplayName: winner?.displayName ?? null,
       finalBid: a.currentBidAmount,
+      sellerId: a.sellerId,
+      netCents: net,
     };
   });
 }
@@ -167,6 +173,36 @@ async function runOnce(): Promise<void> {
           finalBid: result.finalBid,
         }),
       );
+      // Per-user notifications so winner/seller see a toast even if they're
+      // not currently viewing the auction page when it settles.
+      if (
+        result.state === 'SETTLED' &&
+        result.winnerId &&
+        result.finalBid !== null
+      ) {
+        await publisher.publish(
+          `user:${result.winnerId}`,
+          JSON.stringify({
+            event: 'auction_won',
+            auctionId: row.id,
+            finalBid: result.finalBid,
+          }),
+        );
+      }
+      if (
+        result.state === 'SETTLED' &&
+        result.sellerId &&
+        result.netCents !== null
+      ) {
+        await publisher.publish(
+          `user:${result.sellerId}`,
+          JSON.stringify({
+            event: 'auction_sold',
+            auctionId: row.id,
+            netCents: result.netCents,
+          }),
+        );
+      }
       console.log(`[auction-closer] ${result.state} ${row.id}`);
     } catch (err) {
       console.error(`[auction-closer] failed ${row.id}`, err);
