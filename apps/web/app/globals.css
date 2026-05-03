@@ -11,7 +11,7 @@ html, body {
   height: 100%;
 }
 body {
-  @apply bg-zinc-50 text-zinc-900 antialiased;
+  @apply bg-zinc-100 text-zinc-900 antialiased;
   font-family: var(--font-sans);
 }
 code, pre, kbd, .font-mono {

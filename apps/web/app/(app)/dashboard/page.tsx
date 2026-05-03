@@ -48,7 +48,7 @@ export default async function DashboardPage() {
           <NavLink
             key={tile.href}
             href={tile.href}
-            className="rounded-lg border border-zinc-200 bg-white p-4 transition-colors duration-150 hover:bg-zinc-100"
+            className="rounded-lg border border-zinc-200 bg-white p-4 transition-colors duration-150 hover:bg-zinc-200"
           >
             <p className="font-medium">{tile.title}</p>
             <p className="text-sm text-zinc-500">{tile.subtitle}</p>

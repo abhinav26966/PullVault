@@ -56,11 +56,19 @@ export default async function AuctionsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Auctions</h1>
-        <p className="text-sm text-zinc-500">
-          {items.length} live {items.length === 1 ? 'auction' : 'auctions'}
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold">Auctions</h1>
+          <p className="text-sm text-zinc-500">
+            {items.length} live {items.length === 1 ? 'auction' : 'auctions'}
+          </p>
+        </div>
+        <Link
+          href="/collection?action=auction"
+          className="inline-flex items-center gap-2 px-3 py-1.5 bg-zinc-900 text-white text-sm font-medium rounded-md hover:bg-zinc-800 transition-colors"
+        >
+          + Create Auction
+        </Link>
       </div>
 
       {items.length === 0 ? (

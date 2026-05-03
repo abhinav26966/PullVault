@@ -2,8 +2,8 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useChannel } from '@/hooks/use-socket';
 import { PackTile } from '@/components/pack-tile';
@@ -94,6 +94,24 @@ export default function CollectionClient({
   unopened: UnopenedPack[];
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const cardsSectionRef = useRef<HTMLDivElement | null>(null);
+  const [showAuctionPrompt, setShowAuctionPrompt] = useState(
+    () => searchParams?.get('action') === 'auction',
+  );
+  // Deep-link from /auctions's "+ Create Auction" button drops the user here.
+  // Scroll the cards grid into view once on mount so the prompt isn't off-screen.
+  useEffect(() => {
+    if (showAuctionPrompt && cardsSectionRef.current) {
+      cardsSectionRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    }
+    // intentionally one-shot on mount — no deps that should retrigger
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [prices, setPrices] = useState<Map<string, number>>(
     () => new Map(items.map((i) => [i.cardId, i.currentPrice])),
   );
@@ -277,6 +295,20 @@ export default function CollectionClient({
         </section>
       ) : null}
 
+      <div ref={cardsSectionRef} className="space-y-3">
+        {showAuctionPrompt && items.length > 0 ? (
+          <div className="bg-zinc-900 text-white rounded-md px-4 py-3 flex items-center justify-between">
+            <span className="text-sm">Pick a card to auction</span>
+            <button
+              type="button"
+              onClick={() => setShowAuctionPrompt(false)}
+              aria-label="Dismiss"
+              className="text-zinc-400 hover:text-white text-lg leading-none"
+            >
+              ×
+            </button>
+          </div>
+        ) : null}
       {items.length === 0 ? (
         <p className="text-sm text-zinc-500">
           📦 No cards yet — open a pack to start collecting.{' '}
@@ -335,6 +367,7 @@ export default function CollectionClient({
           })}
         </ul>
       )}
+      </div>
 
       {auctionModal ? (
         <div
