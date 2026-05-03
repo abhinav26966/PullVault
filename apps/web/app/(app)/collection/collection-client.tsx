@@ -321,14 +321,14 @@ export default function CollectionClient({
                   <button
                     type="button"
                     onClick={() => openListModal(c)}
-                    className="flex-1 border border-zinc-300 rounded px-2 py-1 hover:bg-zinc-50"
+                    className="flex-1 border border-zinc-300 rounded px-2 py-1 hover:bg-zinc-100 transition-colors duration-150"
                   >
                     List
                   </button>
                   <button
                     type="button"
                     onClick={() => openAuctionModal(c)}
-                    className="flex-1 border border-zinc-300 rounded px-2 py-1 hover:bg-zinc-50"
+                    className="flex-1 border border-zinc-300 rounded px-2 py-1 hover:bg-zinc-100 transition-colors duration-150"
                   >
                     Auction
                   </button>
@@ -341,11 +341,11 @@ export default function CollectionClient({
 
       {auctionModal ? (
         <div
-          className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-modal-backdrop-in"
           onClick={closeAuctionModal}
         >
           <div
-            className="bg-white rounded shadow-lg max-w-sm w-full p-6 space-y-4"
+            className="bg-white rounded-lg border border-zinc-200 shadow-xl max-w-sm w-full p-6 space-y-4 animate-modal-panel-in"
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="text-lg font-semibold">Auction &ldquo;{auctionModal.cardName}&rdquo;</h2>
@@ -385,7 +385,7 @@ export default function CollectionClient({
                 type="button"
                 onClick={closeAuctionModal}
                 disabled={auctionSubmitting}
-                className="px-4 py-2 rounded text-sm border border-zinc-300 hover:bg-zinc-50"
+                className="px-4 py-2 rounded text-sm border border-zinc-300 hover:bg-zinc-100 transition-colors duration-150"
               >
                 Cancel
               </button>
@@ -404,11 +404,11 @@ export default function CollectionClient({
 
       {modal ? (
         <div
-          className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-modal-backdrop-in"
           onClick={closeListModal}
         >
           <div
-            className="bg-white rounded shadow-lg max-w-sm w-full p-6 space-y-4"
+            className="bg-white rounded-lg border border-zinc-200 shadow-xl max-w-sm w-full p-6 space-y-4 animate-modal-panel-in"
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="text-lg font-semibold">List &ldquo;{modal.cardName}&rdquo;</h2>
@@ -434,7 +434,7 @@ export default function CollectionClient({
                 type="button"
                 onClick={closeListModal}
                 disabled={submitting}
-                className="px-4 py-2 rounded text-sm border border-zinc-300 hover:bg-zinc-50"
+                className="px-4 py-2 rounded text-sm border border-zinc-300 hover:bg-zinc-100 transition-colors duration-150"
               >
                 Cancel
               </button>

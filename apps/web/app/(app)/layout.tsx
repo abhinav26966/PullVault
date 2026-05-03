@@ -26,7 +26,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const held = wallet?.balanceHeld ?? 0;
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-zinc-50">
       <header className="border-b border-zinc-200 bg-white">
         <div className="mx-auto max-w-5xl px-6 py-3 flex items-center justify-between">
           <div className="flex items-baseline gap-4">
