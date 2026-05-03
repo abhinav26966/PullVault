@@ -80,3 +80,28 @@ export class SellerCannotBidError extends DomainError {
     super('SELLER_CANNOT_BID', 'Sellers cannot bid on their own auctions.', 403);
   }
 }
+export class ListingNotFoundError extends DomainError {
+  constructor() {
+    super('LISTING_NOT_FOUND', 'Listing not found.', 404);
+  }
+}
+export class NotListingOwnerError extends DomainError {
+  constructor() {
+    super('NOT_LISTING_OWNER', 'Only the seller can perform that action.', 403);
+  }
+}
+export class SellerCannotBuyOwnError extends DomainError {
+  constructor() {
+    super('SELLER_CANNOT_BUY_OWN', 'You cannot buy your own listing.', 400);
+  }
+}
+export class CardNotOwnedError extends DomainError {
+  constructor() {
+    super('CARD_NOT_OWNED', 'You do not own that card.', 404);
+  }
+}
+export class InvalidPriceError extends DomainError {
+  constructor() {
+    super('INVALID_PRICE', 'Listing price must be a positive amount in cents.', 400);
+  }
+}
