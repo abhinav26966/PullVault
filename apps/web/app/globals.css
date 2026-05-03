@@ -30,14 +30,26 @@ code, pre, kbd, .font-mono {
 }
 
 /* Inline spinner for action buttons in pending state. Sized for a 12px
-   circle that sits next to button label text. White-on-dark only — all
-   primary action buttons use bg-zinc-900 text-white. */
+   circle that sits next to button label text. `.spinner` is white-on-dark
+   for primary buttons (bg-zinc-900 text-white); `.spinner-dark` is
+   dark-on-light for secondary buttons (bg-zinc-200 text-zinc-900). */
 @keyframes spin { to { transform: rotate(360deg); } }
 .spinner {
   width: 12px;
   height: 12px;
   border: 2px solid rgba(255, 255, 255, 0.3);
   border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+.spinner-dark {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(0, 0, 0, 0.2);
+  border-top-color: #18181b;
   border-radius: 50%;
   animation: spin 0.6s linear infinite;
   display: inline-block;

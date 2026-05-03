@@ -78,9 +78,16 @@ export default function SignupPage() {
         <button
           type="submit"
           disabled={submitting}
-          className="w-full bg-zinc-900 text-white rounded py-2 hover:bg-zinc-800 disabled:opacity-50"
+          className="w-full bg-zinc-900 text-white rounded py-2 hover:bg-zinc-800 disabled:opacity-50 inline-flex items-center justify-center"
         >
-          {submitting ? 'Creating account…' : 'Create account'}
+          {submitting ? (
+            <>
+              <span className="spinner" />
+              Creating account…
+            </>
+          ) : (
+            'Create account'
+          )}
         </button>
         <p className="text-sm text-zinc-500">
           Have an account?{' '}

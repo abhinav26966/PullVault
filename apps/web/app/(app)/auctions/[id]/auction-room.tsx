@@ -383,9 +383,16 @@ export default function AuctionRoom({
             type="button"
             onClick={cancel}
             disabled={cancelBusy}
-            className="bg-zinc-200 rounded px-4 py-2 hover:bg-zinc-300 disabled:opacity-50"
+            className="bg-zinc-200 rounded px-4 py-2 hover:bg-zinc-300 disabled:opacity-50 inline-flex items-center justify-center"
           >
-            {cancelBusy ? 'Cancelling…' : 'Cancel auction'}
+            {cancelBusy ? (
+              <>
+                <span className="spinner-dark" />
+                Cancelling…
+              </>
+            ) : (
+              'Cancel auction'
+            )}
           </button>
           {cancelError ? <p className="text-sm text-red-600">{cancelError}</p> : null}
         </div>

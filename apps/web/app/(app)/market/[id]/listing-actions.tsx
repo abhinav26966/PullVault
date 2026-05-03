@@ -53,9 +53,16 @@ export default function ListingActions({ listingId, isSeller, priceCents }: Prop
             )
           }
           disabled={busy}
-          className="bg-zinc-200 text-zinc-900 rounded px-6 py-3 hover:bg-zinc-300 disabled:opacity-50"
+          className="bg-zinc-200 text-zinc-900 rounded px-6 py-3 hover:bg-zinc-300 disabled:opacity-50 inline-flex items-center justify-center"
         >
-          {busy ? 'Cancelling…' : 'Cancel listing'}
+          {busy ? (
+            <>
+              <span className="spinner-dark" />
+              Cancelling…
+            </>
+          ) : (
+            'Cancel listing'
+          )}
         </button>
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
       </div>

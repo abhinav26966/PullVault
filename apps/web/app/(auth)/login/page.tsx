@@ -65,9 +65,16 @@ export default function LoginPage() {
         <button
           type="submit"
           disabled={submitting}
-          className="w-full bg-zinc-900 text-white rounded py-2 hover:bg-zinc-800 disabled:opacity-50"
+          className="w-full bg-zinc-900 text-white rounded py-2 hover:bg-zinc-800 disabled:opacity-50 inline-flex items-center justify-center"
         >
-          {submitting ? 'Signing in…' : 'Sign in'}
+          {submitting ? (
+            <>
+              <span className="spinner" />
+              Signing in…
+            </>
+          ) : (
+            'Sign in'
+          )}
         </button>
         <p className="text-sm text-zinc-500">
           New here?{' '}
