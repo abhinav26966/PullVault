@@ -1,6 +1,12 @@
 import type { InferInsertModel, InferSelectModel } from 'drizzle-orm';
 
 export { db, queryClient, type DB } from './client';
+export {
+  ensurePlatformUser,
+  ensureSampleDrops,
+  runPipeline,
+  type PipelineResult,
+} from './price-pipeline/run-pipeline';
 export * as schema from './schema';
 
 // Re-export tables and enums directly so callers can `import { users } from

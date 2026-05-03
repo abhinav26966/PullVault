@@ -6,6 +6,7 @@ import { registerDisconnectHandler } from './handlers/disconnect';
 import { registerSubscribeHandler } from './handlers/subscribe';
 import { runAuctionCloserNow, scheduleAuctionCloser } from './jobs/auction-closer';
 import { runDropActivatorNow, scheduleDropActivator } from './jobs/drop-activator';
+import { schedulePriceRefresh } from './jobs/price-refresh';
 import { startPubSub } from './pubsub';
 
 const PORT = Number(process.env.PORT ?? 4000);
@@ -48,6 +49,13 @@ async function main(): Promise<void> {
   await runAuctionCloserNow();
   scheduleAuctionCloser();
   console.log('[ws] auction-closer scheduled (every 5s)');
+
+  schedulePriceRefresh();
+  const intervalHours = Math.max(
+    1,
+    Math.floor(Number(process.env.PRICE_REFRESH_INTERVAL_HOURS ?? 1)),
+  );
+  console.log(`[ws] price-refresh scheduled (every ${intervalHours}h on minute 0)`);
 
   httpServer.listen(PORT, () => {
     console.log(`[ws] listening on :${PORT}, CORS origin ${WEB_PUBLIC_URL}`);
