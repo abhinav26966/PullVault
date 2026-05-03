@@ -64,11 +64,7 @@ export default async function AuctionsPage() {
 
       {items.length === 0 ? (
         <p className="text-sm text-zinc-500">
-          No live auctions. Start one from your{' '}
-          <Link href="/collection" className="underline">
-            collection
-          </Link>
-          .
+          No live auctions right now — check back later.
         </p>
       ) : (
         <ul className="grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-5">

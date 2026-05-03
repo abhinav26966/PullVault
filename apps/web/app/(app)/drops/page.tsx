@@ -31,7 +31,9 @@ export default async function DropsPage() {
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold">Pack Drops</h1>
       {drops.length === 0 ? (
-        <p className="text-zinc-500">No drops live right now. Check back shortly.</p>
+        <p className="text-sm text-zinc-500">
+          No drops scheduled right now — check back later.
+        </p>
       ) : (
         <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {drops.map((d) => (

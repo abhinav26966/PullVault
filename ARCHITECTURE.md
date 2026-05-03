@@ -1045,13 +1045,15 @@ export async function runPipeline() {
 
   // Broadcast only meaningful changes.
   if (changed.length > 0) {
-    await redis.publish('prices:global', JSON.stringify(changed));
+    await redis.publish('prices:global', JSON.stringify({ prices: changed }));
   }
 
   console.info(`[pipeline source=${source.name}] inserted=${inserted} updated=${updated} broadcast=${changed.length}`);
   return { source: source.name, inserted, updated, broadcast: changed.length, totalCards: rawCards.length };
 }
 ```
+
+**Wire-format contract for `prices:global`.** The payload is always an object envelope: `{ prices: Array<{ cardId, price }> }`. The pubsub bridge in `apps/ws/src/pubsub.ts` spreads the parsed JSON into the Socket.io event payload (`io.to(channel).emit('event', { channel, ...payload })`), so a raw array would deserialise at the client as `{ '0': {...}, '1': {...} }` and silently fail the `isPriceUpdate` runtime guard in `apps/web/app/(app)/collection/collection-client.tsx`. The Phase 8 client and Phase 11 cron both honour this envelope; any new publisher on `prices:*` must too.
 
 The 1% threshold is the noise floor. Underlying prices have minor fluctuations from intraday trading; broadcasting every micro-change would be wasteful. The threshold is configurable via `PRICE_BROADCAST_THRESHOLD_PERCENT` env var.
 
@@ -1157,7 +1159,7 @@ Three tiers create casual / mid / whale segmentation. Two would be thin; four wo
 | ------ | ------- | ----- | -------- | ------------ |
 | Bronze | $4.99   | 5     | $3.05    | 38.9%        |
 | Silver | $14.99  | 7     | $9.74    | 35.0%        |
-| Gold   | $49.99  | 10    | $35.60   | 28.8%        |
+| Gold   | $49.99  | 10    | $35.64   | 28.7%        |
 
 Margin decreases as tier increases. This is a deliberate product decision: high-tier buyers get a better expected return, which incentivizes the big spend. Casino-style tiers usually have the inverse pattern; we go the other way to make this feel like a fair-trading platform rather than a slot machine.
 
@@ -1200,7 +1202,7 @@ Pack EV = $9.74. House margin = 35.0%.
 - 2 guaranteed rare floors: 70% R, 22% E, 8% L → $5.845 each → $11.69 total
 - 1 jackpot slot: 10% R, 50% E, 40% L → $23.08
 
-Pack EV = $35.60. House margin = 28.8%.
+Pack EV = $35.64. House margin = 28.7%.
 
 ### 14.4 What This Means for the User
 
@@ -1281,7 +1283,7 @@ The detailed phase-by-phase build plan, including time budgets per phase, web se
 
 The phasing at a high level: bootstrap (Phase 0) → schema (1) → price pipeline initial run (2) → auth + wallet (3) → domain package with unit tests (4) → pack drops with atomic purchase (5) → WebSocket server + Redis Pub/Sub (6) → pack reveal (7) → portfolio (8) → marketplace (9) → live auctions (10) → cron schedule + demo mode (11) → economics dashboard (12) → polish (13) → deploy (14) → demo recording (15).
 
-Phase 5 (pack drops) and Phase 10 (auctions) are the highest-stakes phases because they map directly to the 30% concurrency weight in the eval rubric. Total target: ~33.5 hours of agent time for Part A, leaving ~6.5 hours of headroom plus 18 hours for Part B inside the 40-hour total.
+Phase 5 (pack drops) and Phase 10 (auctions) are the highest-stakes phases because they map directly to the 30% concurrency weight in the eval rubric. Per-phase budgets and current targets live in [BUILD_PLAN.md](./BUILD_PLAN.md); the working Part-A target is ~22 hours of agent time, leaving the remaining ~18 hours of the 40-hour envelope for Part B.
 
 ---
 

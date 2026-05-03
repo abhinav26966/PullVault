@@ -60,11 +60,7 @@ export default async function MarketPage() {
 
       {items.length === 0 ? (
         <p className="text-sm text-zinc-500">
-          No listings yet. List a card from your{' '}
-          <Link href="/collection" className="underline">
-            collection
-          </Link>
-          .
+          No listings right now — check back later.
         </p>
       ) : (
         <ul className="grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-5">

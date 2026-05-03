@@ -278,11 +278,10 @@ export default function CollectionClient({
 
       {items.length === 0 ? (
         <p className="text-sm text-zinc-500">
-          No cards yet. Buy a pack from{' '}
-          <Link href="/drops" className="underline">
-            Drops
-          </Link>{' '}
-          and rip it open to start your collection.
+          No cards yet — open a pack to start collecting.{' '}
+          <Link href="/drops" className="underline hover:text-zinc-900">
+            Browse drops →
+          </Link>
         </p>
       ) : (
         <ul className="grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-5">
