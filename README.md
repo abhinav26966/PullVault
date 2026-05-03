@@ -135,13 +135,46 @@ pnpm dev            # runs web (port 3000) and ws (port 4000) in parallel
 
 ### Deploy
 
+The split deploys to two platforms because Vercel cannot host long-lived WebSocket connections (their functions are short-lived).
+
 ```bash
-# web
+# web (Vercel)
 vercel --prod
 
 # ws (Railway)
 railway up
 ```
+
+#### Environment variables
+
+Both platforms read most variables from the same source of truth (`.env.example` documents them all). Below is the minimum set each side needs.
+
+**Vercel (web):**
+
+| Variable | Purpose |
+|----------|---------|
+| `DATABASE_URL` | Supabase pooler URL (port 6543) |
+| `REDIS_URL` | Upstash `rediss://…` URL |
+| `JWT_SECRET` | Same value as Railway |
+| `WEB_PUBLIC_URL` | The Vercel domain itself, e.g. `https://pull-vault-web-*.vercel.app` |
+| `NEXT_PUBLIC_WS_URL` | The Railway WSS URL, e.g. `wss://*-up.railway.app`. **Baked into the build at compile time** — change requires redeploy. |
+| `POKEMON_TCG_API_KEY` | Optional but recommended (raises rate limit) |
+| `PRICE_SOURCE` | `pokemontcg` (default) |
+
+**Railway (ws):**
+
+| Variable | Purpose |
+|----------|---------|
+| `DATABASE_URL` | Same Supabase pooler URL |
+| `REDIS_URL` | Same Upstash URL |
+| `JWT_SECRET` | Same value as Vercel — must match exactly so the WS server can verify tokens signed by the web app |
+| `WEB_PUBLIC_URL` | The Vercel domain — used as the CORS allowlist origin |
+| `PORT` | Railway provides automatically |
+| `PRICE_REFRESH_INTERVAL_HOURS` | Default 1 |
+
+#### Cross-domain WS auth
+
+Because the Vercel domain (`*.vercel.app`) is unrelated to the Railway domain (`*.up.railway.app`), the browser will not send the `pv_session` cookie on the WS handshake even with `SameSite=None`. The client therefore fetches the JWT from a same-origin endpoint (`GET /api/auth/ws-token`) and passes it via the Socket.IO handshake auth payload (`io(url, { auth: { token } })`). The WS server reads `socket.handshake.auth.token` first, falling back to the cookie for same-origin local development. Full rationale in [ARCHITECTURE.md §12](./ARCHITECTURE.md#12-authentication).
 
 ---
 

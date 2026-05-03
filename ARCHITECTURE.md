@@ -564,11 +564,28 @@ await db.transaction(async (tx) => {
   const fee = calculateTradeFee(listing.price); // 3% in domain/fee-calculator
   const net = listing.price - fee;
 
-  // 4. Credit the seller.
+  // 4. Credit the seller AND credit the platform.
+  // Both wallets must move to keep §5.2's reconciliation invariant true:
+  // SUM(wallet_ledger.amount) for any user_id MUST equal that user's
+  // wallets.balance_available + balance_held, including the platform user.
+  // The original sketch in earlier drafts only credited the seller; the
+  // shipped code credits both alongside the matching ledger rows.
   await tx.update(wallet).set({ balanceAvailable: sql`balance_available + ${net}` }).where(eq(wallet.userId, listing.sellerId));
+  await tx.update(wallet).set({ balanceAvailable: sql`balance_available + ${fee}` }).where(eq(wallet.userId, PLATFORM_USER_ID));
 
-  // 5. Transfer card ownership.
-  await tx.update(userCard).set({ ownerId: buyerId, state: 'OWNED' }).where(eq(userCard.id, listing.userCardId));
+  // 5. Transfer card ownership AND reset the cost basis.
+  // Updating only owner_id + state would leave the buyer's user_cards row
+  // pointing at the seller's pull-time `acquired_price`, breaking portfolio
+  // P&L for the new owner. We therefore reset acquired_via/acquired_price/
+  // acquired_at on transfer so the buyer's collection page shows P&L
+  // relative to their actual purchase price.
+  await tx.update(userCard).set({
+    ownerId: buyerId,
+    state: 'OWNED',
+    acquiredVia: 'LISTING',
+    acquiredPrice: listing.price,
+    acquiredAt: new Date(),
+  }).where(eq(userCard.id, listing.userCardId));
 
   // 6. Mark listing as SOLD.
   await tx.update(listingTable).set({ state: 'SOLD', soldAt: new Date(), buyerId }).where(eq(listingTable.id, listingId));
@@ -628,7 +645,13 @@ await db.transaction(async (tx) => {
   }
 
   // 5. Anti-snipe: extend endsAt if bid is in the final 30s.
-  const newEndsAt = sql`GREATEST(${auctionTable.endsAt}, ${now}::timestamptz + interval '30 seconds')`;
+  // Use Postgres `clock_timestamp()` rather than `now()`. `now()` is an
+  // alias for `transaction_timestamp()` and is FROZEN at tx start; on a
+  // pooler-spanning bid tx with ~9 statements, that can be several seconds
+  // earlier than the actual UPDATE moment, so the spec's "bidPlacedAt + 30s"
+  // semantic from §15 only holds against `clock_timestamp()`. Verified on
+  // Supabase pooler latency in Phase 10.
+  const newEndsAt = sql`GREATEST(${auctionTable.endsAt}, clock_timestamp() + interval '30 seconds')`;
 
   // 6. Update auction with new high bid and possibly extended timer.
   const [updated] = await tx
@@ -703,21 +726,37 @@ async function closeAndSettleExpiredAuctions() {
         await tx.update(auctionTable).set({ state: 'SETTLED' }).where(eq(auctionTable.id, a.id));
       } else {
         // Settle: winner pays, seller gets paid minus fee, card transfers.
+        // Same two deviations from the original sketch as §6.2's listing buy
+        // (platform-wallet credit + acquired_* reset on transfer), for the
+        // same two reasons (§5.2 reconciliation invariant + winner P&L
+        // semantics). See the §6.2 commentary above for full rationale.
         const fee = calculateAuctionFee(a.currentBidAmount); // 5% in domain
         const net = a.currentBidAmount - fee;
 
-        // Winner: held → 0
+        // Winner: held → 0 (they pay from their existing hold).
         await tx.update(wallet)
           .set({ balanceHeld: sql`balance_held - ${a.currentBidAmount}` })
           .where(eq(wallet.userId, a.currentBidUserId));
 
-        // Seller: receive net
+        // Seller: receive net.
         await tx.update(wallet)
           .set({ balanceAvailable: sql`balance_available + ${net}` })
           .where(eq(wallet.userId, a.sellerId));
 
-        // Transfer card.
-        await tx.update(userCard).set({ ownerId: a.currentBidUserId, state: 'OWNED' }).where(eq(userCard.id, a.userCardId));
+        // Platform: receive fee. Required for §5.2 reconciliation invariant.
+        await tx.update(wallet)
+          .set({ balanceAvailable: sql`balance_available + ${fee}` })
+          .where(eq(wallet.userId, PLATFORM_USER_ID));
+
+        // Transfer card with cost-basis reset (winner's collection P&L
+        // should start from their winning bid, not the seller's pull price).
+        await tx.update(userCard).set({
+          ownerId: a.currentBidUserId,
+          state: 'OWNED',
+          acquiredVia: 'AUCTION',
+          acquiredPrice: a.currentBidAmount,
+          acquiredAt: now,
+        }).where(eq(userCard.id, a.userCardId));
 
         // Auction row.
         await tx.update(auctionTable).set({ state: 'SETTLED', settledAt: now }).where(eq(auctionTable.id, a.id));
@@ -1099,12 +1138,12 @@ This is locked at the boundary. SQL never sees decimals. JavaScript number arith
 
 A custom-rolled JWT auth flow:
 
-1. Sign-up: bcrypt the password, insert user, sign a JWT with `userId` and 7-day expiry, set as httpOnly secure cookie.
+1. Sign-up: bcrypt the password, insert user, sign a JWT with `userId` and 7-day expiry, set as httpOnly secure cookie. In production the cookie is also `SameSite=None` so cross-domain WS requests can pick it up; in local dev it's `SameSite=Lax`.
 2. Login: lookup by email, bcrypt verify, sign and set cookie as above.
-3. Every API route validates the cookie via `getSession()` helper, which decodes the JWT and re-checks against a Redis-stored revocation list (for logout).
-4. WS connection: client sends the cookie on the upgrade request. The WS server reads the JWT, decodes, and stores `userId` on the socket.
+3. Every API route validates the cookie via `getSessionUser()` helper, which decodes the JWT and looks up the user. The JWT is stateless — there is no server-side revocation list; logout simply clears the cookie. A reviewer-equivalent who copies a stolen JWT from one browser to another will be authenticated until the 7-day expiry, which is the standard tradeoff for stateless JWTs at trial scale.
+4. WS connection: cookies do not cross unrelated origins (Vercel `pull-vault-web-*.vercel.app` ≠ Railway `*.up.railway.app`) regardless of `SameSite`, so the client cannot rely on the cookie for the cross-domain handshake. The browser instead fetches the JWT from a same-origin endpoint (`GET /api/auth/ws-token`, which reads the same `pv_session` cookie server-side and echoes the JWT back as JSON) and passes it in the Socket.IO handshake auth payload (`io(url, { auth: { token } })`). The WS server reads `socket.handshake.auth.token` first, falling back to the cookie for same-origin local dev. This is the standard Socket.IO middleware pattern documented at https://socket.io/docs/v4/middlewares/. The trade-off vs pure-httpOnly is that a successful XSS could now read the token from JS memory; in exchange we get reliable cross-domain WS auth, which is non-negotiable for the Vercel + Railway split.
 
-This is ~100 lines of code total, has no external dependencies, and is straightforward to reason about.
+This is ~120 lines of code total, has no external dependencies, and is straightforward to reason about.
 
 ### Why not Supabase Auth
 
@@ -1252,10 +1291,12 @@ eBay Motors, Heritage Auctions, and Goldin all use variants of soft close. It is
 **Implementation:** the `endsAt` update inside the bid transaction uses `GREATEST` to ensure the timer only extends, never shortens.
 
 ```sql
-SET ends_at = GREATEST(ends_at, now() + interval '30 seconds')
+SET ends_at = GREATEST(ends_at, clock_timestamp() + interval '30 seconds')
 ```
 
-If a bid arrives at, say, 3 minutes before close, `now() + 30s` is in the past relative to the existing `ends_at`, so `GREATEST` keeps the original. If a bid arrives at 10 seconds before close, `now() + 30s` is later than `ends_at`, so `GREATEST` extends.
+If a bid arrives at, say, 3 minutes before close, `clock_timestamp() + 30s` is in the past relative to the existing `ends_at`, so `GREATEST` keeps the original. If a bid arrives at 10 seconds before close, `clock_timestamp() + 30s` is later than `ends_at`, so `GREATEST` extends.
+
+**`clock_timestamp()` not `now()`.** Postgres `now()` is an alias for `transaction_timestamp()` and is fixed at the start of the transaction; on a pooler-spanning bid tx with ~9 statements, that can be several seconds earlier than the moment the UPDATE actually runs, so the apparent extension shrinks by however long the tx took. `clock_timestamp()` is wall-clock at the moment the SQL evaluates, which is the semantic the prose above describes.
 
 **No upper bound on extensions.** A motivated bidder vs. a motivated seller can theoretically extend forever. In practice, after 5-10 extensions the price has run up enough that one side gives up. This is exactly what we want; it is the auction working.
 
@@ -1330,7 +1371,7 @@ Bidder X                 Auction (endsAt = T+10s)                Postgres
    │                                                  UPDATE auction
    │                                                    SET current_bid = amt,
    │                                                        current_bid_user = X,
-   │                                                        ends_at = GREATEST(ends_at, now() + 30s)
+   │                                                        ends_at = GREATEST(ends_at, clock_timestamp() + 30s)
    │                                                  INSERT bid row
    │                                                  COMMIT
    │                                                                       │
