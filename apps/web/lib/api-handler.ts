@@ -2,9 +2,20 @@ import { NextResponse } from 'next/server';
 import { ZodError } from 'zod';
 import { DomainError } from './errors';
 
-type Handler = (req: Request, ctx: { params: Record<string, string> }) => Promise<Response>;
+type Params = Record<string, string>;
 
-export function withErrors(handler: Handler): Handler {
+type Handler<P extends Params = Params> = (
+  req: Request,
+  ctx: { params: P },
+) => Promise<Response>;
+
+/**
+ * Wraps a route handler. Maps DomainError → JSON+status, ZodError → 400,
+ * everything else → 500. Generic over the params shape so routes that take
+ * `[id]` can declare `withErrors<{ id: string }>(...)` and avoid the
+ * `string | undefined` from `noUncheckedIndexedAccess`.
+ */
+export function withErrors<P extends Params = Params>(handler: Handler<P>): Handler<P> {
   return async (req, ctx) => {
     try {
       return await handler(req, ctx);

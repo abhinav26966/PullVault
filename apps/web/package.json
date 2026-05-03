@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "activate-drops": "tsx scripts/drop-activator.ts",
+    "seed-test-drop": "tsx scripts/seed-test-drop.ts"
   },
   "dependencies": {
     "@pullvault/db": "workspace:*",
