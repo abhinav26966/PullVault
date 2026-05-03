@@ -94,23 +94,16 @@ export default async function PackPage({ params }: { params: { id: string } }) {
             <p className="text-xs text-zinc-500">
               {c.rarity} · {fmtUsd(c.price)}
             </p>
-            <div className="mt-2 flex gap-2 text-xs">
-              <Link
-                href={`/market/new?card=${c.cardId}`}
-                className="flex-1 text-center border border-zinc-300 rounded px-2 py-1 hover:bg-zinc-50"
-              >
-                List
-              </Link>
-              <Link
-                href={`/auctions/new?card=${c.cardId}`}
-                className="flex-1 text-center border border-zinc-300 rounded px-2 py-1 hover:bg-zinc-50"
-              >
-                Auction
-              </Link>
-            </div>
           </li>
         ))}
       </ul>
+      <p className="text-sm text-zinc-500">
+        These cards are now in your{' '}
+        <Link href="/collection" className="underline hover:text-zinc-900">
+          collection
+        </Link>
+        . List them for sale or start an auction from there.
+      </p>
     </div>
   );
 }

@@ -58,7 +58,7 @@ async function getSocket(): Promise<Socket | null> {
     }
 
     if (typeof window !== 'undefined') {
-      console.log('[ws] connecting to:', url, 'with token: present');
+      console.log('[ws] connecting to:', url);
     }
 
     const socket = io(url, {
