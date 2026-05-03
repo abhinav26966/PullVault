@@ -1,10 +1,22 @@
 import { eq } from 'drizzle-orm';
+import Link from 'next/link';
 import { db, wallets } from '@pullvault/db';
 import { requireAuth } from '@/lib/require-auth';
 
 function fmtUsd(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
+
+const NAV_TILES: ReadonlyArray<{
+  href: string;
+  title: string;
+  subtitle: string;
+}> = [
+  { href: '/drops', title: 'Drops', subtitle: 'Compete for limited pack inventory' },
+  { href: '/collection', title: 'Collection', subtitle: 'Owned cards and unopened packs' },
+  { href: '/market', title: 'Market', subtitle: 'Fixed-price listings' },
+  { href: '/auctions', title: 'Auctions', subtitle: 'Live bidding with anti-snipe' },
+];
 
 export default async function DashboardPage() {
   const user = await requireAuth();
@@ -31,9 +43,18 @@ export default async function DashboardPage() {
           </p>
         </div>
       </div>
-      <p className="text-sm text-zinc-500">
-        Drops, marketplace, and auctions coming online in later phases.
-      </p>
+      <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
+        {NAV_TILES.map((tile) => (
+          <Link
+            key={tile.href}
+            href={tile.href}
+            className="rounded-lg border border-zinc-200 p-4 hover:bg-zinc-50"
+          >
+            <p className="font-medium">{tile.title}</p>
+            <p className="text-sm text-zinc-500">{tile.subtitle}</p>
+          </Link>
+        ))}
+      </div>
     </div>
   );
 }

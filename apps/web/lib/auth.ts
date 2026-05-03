@@ -42,7 +42,11 @@ export function setSessionCookie(token: string): void {
   cookies().set(COOKIE_NAME, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    // Cross-domain WS upgrade (Vercel web ↔ Railway ws) needs SameSite=None
+    // so the cookie rides the cross-origin handshake. None requires Secure
+    // per spec, which we only set in production. In dev the apps share
+    // localhost so Lax is sufficient and Secure can be off.
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     path: '/',
     maxAge: SESSION_TTL_SECONDS,
   });
@@ -52,7 +56,11 @@ export function clearSessionCookie(): void {
   cookies().set(COOKIE_NAME, '', {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    // Cross-domain WS upgrade (Vercel web ↔ Railway ws) needs SameSite=None
+    // so the cookie rides the cross-origin handshake. None requires Secure
+    // per spec, which we only set in production. In dev the apps share
+    // localhost so Lax is sufficient and Secure can be off.
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     path: '/',
     maxAge: 0,
   });
