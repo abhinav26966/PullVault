@@ -22,41 +22,42 @@ export default async function EconomicsPage() {
   // admin role; the trial is intentionally permissive for reviewer convenience.
   await requireAuth();
 
-  const tierRows = await db
-    .select({
-      tier: packs.tier,
-      packsOpened: count(packs.id),
-      avgRealizedEv: avg(packs.packEvAtPurchase),
-    })
-    .from(packs)
-    .where(isNotNull(packs.openedAt))
-    .groupBy(packs.tier);
+  // Run all four reads in parallel — they're independent, and the page
+  // previously serialized them which doubled the load time over the pooler.
+  const [tierRows, [feeRow], [ledgerSumRow], [walletSumRow]] = await Promise.all([
+    db
+      .select({
+        tier: packs.tier,
+        packsOpened: count(packs.id),
+        avgRealizedEv: avg(packs.packEvAtPurchase),
+      })
+      .from(packs)
+      .where(isNotNull(packs.openedAt))
+      .groupBy(packs.tier),
+    db
+      .select({ total: sum(walletLedger.amount) })
+      .from(walletLedger)
+      .where(
+        and(
+          eq(walletLedger.userId, PLATFORM_USER_ID),
+          inArray(walletLedger.type, ['LISTING_FEE', 'AUCTION_FEE']),
+        ),
+      ),
+    db.select({ total: sum(walletLedger.amount) }).from(walletLedger),
+    db
+      .select({
+        total: sql<string>`COALESCE(SUM(${wallets.balanceAvailable} + ${wallets.balanceHeld}), 0)`,
+      })
+      .from(wallets),
+  ]);
 
   const byTier = new Map(tierRows.map((r) => [r.tier, r]));
-
-  const [feeRow] = await db
-    .select({ total: sum(walletLedger.amount) })
-    .from(walletLedger)
-    .where(
-      and(
-        eq(walletLedger.userId, PLATFORM_USER_ID),
-        inArray(walletLedger.type, ['LISTING_FEE', 'AUCTION_FEE']),
-      ),
-    );
   const totalFeesCents = Number(feeRow?.total ?? 0);
 
   // §5.2 reconciliation invariant: SUM(wallet_ledger.amount) over all users
   // must equal SUM(wallets.balance_available + balance_held). Surface it as
   // a green/red badge so a reviewer can verify the audit trail without
   // running ad-hoc SQL.
-  const [ledgerSumRow] = await db
-    .select({ total: sum(walletLedger.amount) })
-    .from(walletLedger);
-  const [walletSumRow] = await db
-    .select({
-      total: sql<string>`COALESCE(SUM(${wallets.balanceAvailable} + ${wallets.balanceHeld}), 0)`,
-    })
-    .from(wallets);
   const ledgerTotalCents = Number(ledgerSumRow?.total ?? 0);
   const walletTotalCents = Number(walletSumRow?.total ?? 0);
   const reconciliationDeltaCents = walletTotalCents - ledgerTotalCents;
