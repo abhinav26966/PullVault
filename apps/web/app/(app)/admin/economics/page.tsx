@@ -1,9 +1,10 @@
-import { and, avg, count, eq, inArray, isNotNull, sum } from 'drizzle-orm';
+import { and, avg, count, eq, inArray, isNotNull, sql, sum } from 'drizzle-orm';
 import {
   PLATFORM_USER_ID,
   db,
   packs,
   walletLedger,
+  wallets,
 } from '@pullvault/db';
 import { TIER_CONFIG, computeTierEV, type Tier } from '@pullvault/domain';
 import { requireAuth } from '@/lib/require-auth';
@@ -43,6 +44,23 @@ export default async function EconomicsPage() {
       ),
     );
   const totalFeesCents = Number(feeRow?.total ?? 0);
+
+  // §5.2 reconciliation invariant: SUM(wallet_ledger.amount) over all users
+  // must equal SUM(wallets.balance_available + balance_held). Surface it as
+  // a green/red badge so a reviewer can verify the audit trail without
+  // running ad-hoc SQL.
+  const [ledgerSumRow] = await db
+    .select({ total: sum(walletLedger.amount) })
+    .from(walletLedger);
+  const [walletSumRow] = await db
+    .select({
+      total: sql<string>`COALESCE(SUM(${wallets.balanceAvailable} + ${wallets.balanceHeld}), 0)`,
+    })
+    .from(wallets);
+  const ledgerTotalCents = Number(ledgerSumRow?.total ?? 0);
+  const walletTotalCents = Number(walletSumRow?.total ?? 0);
+  const reconciliationDeltaCents = walletTotalCents - ledgerTotalCents;
+  const reconciliationBalanced = reconciliationDeltaCents === 0;
 
   return (
     <div className="space-y-8">
@@ -108,6 +126,33 @@ export default async function EconomicsPage() {
         <p className="text-4xl font-mono mt-1">{fmtUsd(totalFeesCents)}</p>
         <p className="text-xs text-zinc-500 mt-2">
           Sum of LISTING_FEE + AUCTION_FEE ledger entries against the platform user.
+        </p>
+      </section>
+
+      <section
+        className={`border rounded p-6 ${
+          reconciliationBalanced
+            ? 'bg-green-50 border-green-300'
+            : 'bg-red-50 border-red-300'
+        }`}
+      >
+        <p className="text-sm text-zinc-600">Ledger reconciliation (§5.2)</p>
+        {reconciliationBalanced ? (
+          <p className="text-2xl font-mono mt-1 text-green-800">
+            ✓ Balanced — {fmtUsd(ledgerTotalCents)}
+          </p>
+        ) : (
+          <p className="text-2xl font-mono mt-1 text-red-800">
+            ✗ Imbalanced — Δ {fmtUsd(reconciliationDeltaCents)}
+          </p>
+        )}
+        <p className="text-xs text-zinc-500 mt-2">
+          SUM(wallet_ledger.amount) ={' '}
+          <span className="font-mono">{fmtUsd(ledgerTotalCents)}</span>; SUM(wallets.balance_available
+          + balance_held) ={' '}
+          <span className="font-mono">{fmtUsd(walletTotalCents)}</span>. Equal ⇒ every
+          wallet&rsquo;s net change matches its ledger entries across the system, including
+          the platform user.
         </p>
       </section>
     </div>

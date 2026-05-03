@@ -107,6 +107,15 @@ export default function AuctionRoom({
     winnerDisplayName: string | null;
     finalBid: number | null;
   } | null>(null);
+  const [outbidAt, setOutbidAt] = useState<number | null>(null);
+
+  // Auto-dismiss the outbid banner after 5 seconds. The bid event handler
+  // also clears it whenever the current user reclaims the high-bidder slot.
+  useEffect(() => {
+    if (outbidAt === null) return;
+    const id = setTimeout(() => setOutbidAt(null), 5000);
+    return () => clearTimeout(id);
+  }, [outbidAt]);
 
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -141,6 +150,11 @@ export default function AuctionRoom({
           setCurrentBidDisplayName(e.currentBidderDisplayName);
         }
         if (typeof e.endsAt === 'string') setEndsAt(e.endsAt);
+        // If the current user is the new high bidder, clear any pending
+        // outbid banner — they reclaimed the top slot.
+        if (e.currentBidUserId === initialState.currentUserId) {
+          setOutbidAt(null);
+        }
         if (
           typeof e.currentBid === 'number' &&
           typeof e.currentBidUserId === 'string' &&
@@ -174,6 +188,19 @@ export default function AuctionRoom({
       }
     },
     onReconnect: () => router.refresh(),
+  });
+
+  // user:{currentUserId} room delivers outbid notifications. Server
+  // publishes this from the bid POST whenever a previous high bidder
+  // exists; we surface it as an inline banner per the no-toast scope cut.
+  useChannel(`user:${initialState.currentUserId}`, {
+    onEvent: (payload) => {
+      const ev = (payload as { event?: string }).event;
+      const eventAuctionId = (payload as { auctionId?: unknown }).auctionId;
+      if (ev === 'outbid' && eventAuctionId === auctionId) {
+        setOutbidAt(Date.now());
+      }
+    },
   });
 
   const endsAtMs = new Date(endsAt).getTime();
@@ -286,6 +313,16 @@ export default function AuctionRoom({
               : youLost
                 ? `Sold to ${closedBanner.winnerDisplayName ?? 'another bidder'} for ${fmtUsd(closedBanner.finalBid ?? 0)}.`
                 : `Sold for ${fmtUsd(closedBanner.finalBid ?? 0)}.`}
+        </div>
+      ) : null}
+
+      {outbidAt !== null && isLive && !isSeller ? (
+        <div className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          ⚠ You&rsquo;ve been outbid — current high is{' '}
+          <span className="font-mono">
+            {currentBid !== null ? fmtUsd(currentBid) : '—'}
+          </span>
+          {currentBidDisplayName ? ` by ${currentBidDisplayName}` : null}.
         </div>
       ) : null}
 
