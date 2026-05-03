@@ -15,6 +15,12 @@ interface InitialDrop {
   state: 'SCHEDULED' | 'OPEN' | 'SOLD_OUT' | 'CLOSED';
 }
 
+const TIER_BAR: Record<InitialDrop['tier'], string> = {
+  BRONZE: 'bg-amber-700',
+  SILVER: 'bg-zinc-500',
+  GOLD: 'bg-amber-500',
+};
+
 function fmtUsd(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
@@ -55,12 +61,15 @@ export default function DropBuyClient({ initial }: { initial: InitialDrop }) {
     serverState === 'OPEN' || (serverState === 'SCHEDULED' && reachedStart);
   const soldOut = serverState === 'SOLD_OUT' || inventoryRemaining === 0;
 
-  async function buy() {
+  async function buy(): Promise<void> {
     setBusy(true);
     setError(null);
     try {
       const res = await fetch(`/api/drops/${initial.id}/buy`, { method: 'POST' });
-      const j = (await res.json().catch(() => ({}))) as { packId?: string; message?: string };
+      const j = (await res.json().catch(() => ({}))) as {
+        packId?: string;
+        message?: string;
+      };
       if (!res.ok) {
         setError(j.message ?? `Buy failed (${res.status})`);
         return;
@@ -86,31 +95,57 @@ export default function DropBuyClient({ initial }: { initial: InitialDrop }) {
   } else if (soldOut) buttonContent = 'Sold out';
   else if (!isOpen) buttonContent = `Opens in ${secondsUntil}s`;
 
+  const fillPercent =
+    initial.inventoryTotal > 0
+      ? Math.round((inventoryRemaining / initial.inventoryTotal) * 100)
+      : 0;
+
+  let statusLabel = '—';
+  let statusClass = 'text-zinc-500';
+  if (soldOut) {
+    statusLabel = 'SOLD OUT';
+    statusClass = 'text-red-600';
+  } else if (isOpen) {
+    statusLabel = 'LIVE';
+    statusClass = 'text-green-600';
+  } else {
+    statusLabel = `Opens in ${secondsUntil}s`;
+    statusClass = 'text-zinc-700';
+  }
+
   return (
-    <div className="max-w-md space-y-4">
-      <div className="bg-white border border-zinc-200 rounded p-6 space-y-3">
+    <div className="space-y-4">
+      <div className="bg-white border border-zinc-200 rounded-lg p-6 space-y-5">
         <div className="flex items-baseline justify-between">
-          <span className="text-sm text-zinc-500">Price</span>
-          <span className="text-2xl font-mono">{fmtUsd(initial.priceCents)}</span>
-        </div>
-        <div className="flex items-baseline justify-between">
-          <span className="text-sm text-zinc-500">Inventory</span>
-          <span className="font-mono">
-            {inventoryRemaining} / {initial.inventoryTotal}
-            {soldOut ? <span className="text-red-600 ml-2">SOLD OUT</span> : null}
+          <span className="text-xs uppercase tracking-widest text-zinc-500">
+            Status
+          </span>
+          <span
+            className={`text-sm font-mono font-medium tabular-nums ${statusClass}`}
+            suppressHydrationWarning
+          >
+            {statusLabel}
           </span>
         </div>
-        <div className="flex items-baseline justify-between">
-          <span className="text-sm text-zinc-500">Status</span>
-          <span className="font-mono">
-            {soldOut ? 'SOLD_OUT' : isOpen ? 'OPEN' : `opens in ${secondsUntil}s`}
-          </span>
+        <div className="space-y-2">
+          <div className="flex items-baseline justify-between text-sm">
+            <span className="text-zinc-500">Inventory</span>
+            <span className="font-mono tabular-nums text-zinc-900">
+              {inventoryRemaining} / {initial.inventoryTotal} packs
+            </span>
+          </div>
+          <div className="h-2 bg-zinc-200 rounded-full overflow-hidden">
+            <div
+              className={`h-full ${TIER_BAR[initial.tier]} transition-all duration-300`}
+              style={{ width: soldOut ? '0%' : `${fillPercent}%` }}
+            />
+          </div>
         </div>
       </div>
       <button
         onClick={buy}
         disabled={!isOpen || soldOut || busy}
-        className="w-full bg-zinc-900 text-white rounded py-3 hover:bg-zinc-800 disabled:opacity-50 inline-flex items-center justify-center"
+        className="w-full bg-zinc-900 text-white rounded-md py-3 font-medium hover:bg-zinc-800 disabled:opacity-50 inline-flex items-center justify-center transition-colors"
       >
         {buttonContent}
       </button>
