@@ -2,11 +2,47 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 html, body {
   height: 100%;
 }
 body {
   @apply bg-zinc-50 text-zinc-900 antialiased;
+  font-family: var(--font-sans);
+}
+code, pre, kbd, .font-mono {
+  font-family: var(--font-mono);
+}
+
+/* Card reveal stagger — applied per-card in /packs/[id] with inline
+   animationDelay so cards fade-up sequentially. */
+@keyframes card-reveal {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.card-reveal {
+  opacity: 0;
+  animation: card-reveal 300ms ease-out forwards;
+}
+
+/* Inline spinner for action buttons in pending state. Sized for a 12px
+   circle that sits next to button label text. White-on-dark only — all
+   primary action buttons use bg-zinc-900 text-white. */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 6px;
 }
 
 /* Top-of-screen navigation progress bar. Runs once per <NavProgress />

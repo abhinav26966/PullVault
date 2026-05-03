@@ -4,13 +4,8 @@ import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import toast from 'react-hot-toast';
 import { TIER_CONFIG } from '@pullvault/domain';
+import { PackTile } from '@/components/pack-tile';
 import { openPack } from './actions';
-
-const TIER_BG: Record<'BRONZE' | 'SILVER' | 'GOLD', string> = {
-  BRONZE: 'bg-amber-700',
-  SILVER: 'bg-zinc-400',
-  GOLD: 'bg-yellow-500',
-};
 
 interface Props {
   packId: string;
@@ -46,17 +41,20 @@ export default function RipOpenCard({ packId, tier, pricePaid }: Props) {
         <h1 className="text-2xl font-semibold">{tier} pack</h1>
         <p className="text-sm text-zinc-500">Paid {fmtUsd(pricePaid)}</p>
       </div>
-      <div
-        className={`${TIER_BG[tier]} aspect-[3/4] max-w-[240px] rounded-lg flex items-center justify-center shadow-md`}
-      >
-        <span className="text-white text-2xl font-bold tracking-wide">{tier}</span>
-      </div>
+      <PackTile tier={tier} size="lg" />
       <button
         onClick={rip}
         disabled={pending}
-        className="bg-zinc-900 text-white rounded px-6 py-3 hover:bg-zinc-800 disabled:opacity-50"
+        className="bg-zinc-900 text-white rounded px-6 py-3 hover:bg-zinc-800 disabled:opacity-50 inline-flex items-center"
       >
-        {pending ? 'Opening…' : 'Rip Open'}
+        {pending ? (
+          <>
+            <span className="spinner" />
+            Opening…
+          </>
+        ) : (
+          'Rip Open'
+        )}
       </button>
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
     </div>

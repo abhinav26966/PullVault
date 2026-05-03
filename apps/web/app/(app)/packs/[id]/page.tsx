@@ -76,10 +76,11 @@ export default async function PackPage({ params }: { params: { id: string } }) {
         </div>
       </div>
       <ul className="grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-5">
-        {items.map((c) => (
+        {items.map((c, i) => (
           <li
             key={c.position}
-            className={`border-2 rounded bg-white p-2 ${RARITY_BORDER[c.rarity] ?? 'border-zinc-300'}`}
+            className={`card-reveal border-2 rounded bg-white p-2 ${RARITY_BORDER[c.rarity] ?? 'border-zinc-300'}`}
+            style={{ animationDelay: `${i * 50}ms` }}
           >
             <Image
               src={c.imageUrl}

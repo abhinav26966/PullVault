@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useChannel } from '@/hooks/use-socket';
+import { PackTile } from '@/components/pack-tile';
 
 interface Item {
   userCardId: string;
@@ -30,12 +31,6 @@ const RARITY_BORDER: Record<Item['rarity'], string> = {
   R: 'border-blue-400',
   E: 'border-purple-500',
   L: 'border-amber-500',
-};
-
-const TIER_BG: Record<UnopenedPack['tier'], string> = {
-  BRONZE: 'bg-amber-700',
-  SILVER: 'bg-zinc-400',
-  GOLD: 'bg-yellow-500',
 };
 
 function fmtUsd(cents: number): string {
@@ -264,15 +259,17 @@ export default function CollectionClient({
       {unopened.length > 0 ? (
         <section className="space-y-3">
           <h2 className="text-lg font-medium">Unopened packs</h2>
-          <ul className="flex flex-wrap gap-3">
+          <ul className="flex flex-wrap gap-4">
             {unopened.map((p) => (
               <li key={p.id}>
                 <Link
                   href={`/packs/${p.id}`}
-                  className={`${TIER_BG[p.tier]} text-white rounded px-4 py-2 inline-flex items-center gap-2 hover:opacity-90`}
+                  className="group inline-block transition-transform duration-150 hover:scale-105"
                 >
-                  <span className="font-medium">{p.tier}</span>
-                  <span className="text-xs opacity-80">{fmtUsd(p.pricePaid)}</span>
+                  <PackTile tier={p.tier} size="md" />
+                  <p className="mt-2 text-xs text-zinc-500 text-center font-mono">
+                    {fmtUsd(p.pricePaid)}
+                  </p>
                 </Link>
               </li>
             ))}
@@ -341,11 +338,11 @@ export default function CollectionClient({
 
       {auctionModal ? (
         <div
-          className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-modal-backdrop-in"
+          className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-modal-backdrop-in"
           onClick={closeAuctionModal}
         >
           <div
-            className="bg-white rounded-lg border border-zinc-200 shadow-xl max-w-sm w-full p-6 space-y-4 animate-modal-panel-in"
+            className="relative z-[101] bg-white rounded-lg border border-zinc-200 shadow-xl max-w-sm w-full p-6 space-y-4 animate-modal-panel-in"
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="text-lg font-semibold">Auction &ldquo;{auctionModal.cardName}&rdquo;</h2>
@@ -404,11 +401,11 @@ export default function CollectionClient({
 
       {modal ? (
         <div
-          className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-modal-backdrop-in"
+          className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-modal-backdrop-in"
           onClick={closeListModal}
         >
           <div
-            className="bg-white rounded-lg border border-zinc-200 shadow-xl max-w-sm w-full p-6 space-y-4 animate-modal-panel-in"
+            className="relative z-[101] bg-white rounded-lg border border-zinc-200 shadow-xl max-w-sm w-full p-6 space-y-4 animate-modal-panel-in"
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="text-lg font-semibold">List &ldquo;{modal.cardName}&rdquo;</h2>
