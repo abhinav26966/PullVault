@@ -72,9 +72,21 @@ export default async function AuctionsPage() {
       </div>
 
       {items.length === 0 ? (
-        <p className="text-sm text-zinc-500">
-          🔨 No live auctions right now — check back later.
-        </p>
+        <div className="flex flex-col items-center justify-center text-center py-16 px-4 space-y-4">
+          <span className="text-6xl" aria-hidden>
+            🔨
+          </span>
+          <p className="text-base text-zinc-700">No live auctions right now</p>
+          <p className="text-sm text-zinc-500 max-w-md">
+            When users put cards up for bid, they&rsquo;ll appear here in real-time.
+          </p>
+          <Link
+            href="/collection?action=auction"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-zinc-900 text-white text-sm font-medium rounded-md hover:bg-zinc-800 transition-colors"
+          >
+            Create your own auction
+          </Link>
+        </div>
       ) : (
         <ul className="grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-5">
           {items.map((a) => {
