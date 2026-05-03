@@ -16,10 +16,33 @@ interface UseChannelOptions {
 }
 
 let sharedSocket: Socket | null = null;
+let warnedNoUrl = false;
 
-function getSocket(): Socket {
+function getSocket(): Socket | null {
   if (sharedSocket) return sharedSocket;
-  const url = process.env.NEXT_PUBLIC_WS_URL ?? 'ws://localhost:4000';
+
+  const url = process.env.NEXT_PUBLIC_WS_URL;
+  if (!url) {
+    if (!warnedNoUrl && typeof window !== 'undefined') {
+      console.warn('[ws] NEXT_PUBLIC_WS_URL not set — live updates disabled');
+      warnedNoUrl = true;
+    }
+    return null;
+  }
+
+  if (typeof window !== 'undefined') {
+    // pv_session is httpOnly so it won't appear in document.cookie even when
+    // it's being sent on the WS handshake. document.cookie is a coarse signal
+    // for "any cookies at all on this origin" — useful to spot a totally-empty
+    // browser cookie state, not for verifying pv_session specifically.
+    console.log(
+      '[ws] connecting to:',
+      url,
+      'with cookie:',
+      document.cookie ? 'present' : 'missing',
+    );
+  }
+
   sharedSocket = io(url, {
     withCredentials: true,
     transports: ['websocket', 'polling'],
@@ -33,6 +56,7 @@ export function useChannel(channel: string, options: UseChannelOptions): void {
 
   useEffect(() => {
     const socket = getSocket();
+    if (!socket) return;
     const manager = socket.io;
 
     const handleEvent = (payload: EventEnvelope): void => {

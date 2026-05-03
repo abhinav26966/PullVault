@@ -1,4 +1,4 @@
-import { and, asc, gt, inArray } from 'drizzle-orm';
+import { asc, inArray } from 'drizzle-orm';
 import Link from 'next/link';
 import { db, packDrops } from '@pullvault/db';
 
@@ -15,16 +15,15 @@ const TIER_STYLES: Record<string, string> = {
 };
 
 export default async function DropsPage() {
-  const oneHourAgo = new Date(Date.now() - 60 * 60_000);
+  // Show every drop that's still buyable. State is the only correct gate —
+  // SOLD_OUT and CLOSED are filtered out by the IN clause; OPEN drops with
+  // remaining inventory should appear regardless of how long ago they
+  // activated. The earlier `starts_at > now() - 1h` filter from the
+  // BUILD_PLAN sketch wrongly hides demo-aged drops on Vercel.
   const drops = await db
     .select()
     .from(packDrops)
-    .where(
-      and(
-        inArray(packDrops.state, ['SCHEDULED', 'OPEN']),
-        gt(packDrops.startsAt, oneHourAgo),
-      ),
-    )
+    .where(inArray(packDrops.state, ['SCHEDULED', 'OPEN']))
     .orderBy(asc(packDrops.startsAt));
 
   return (
