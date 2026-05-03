@@ -371,7 +371,7 @@ export default function CollectionClient({
 
       {auctionModal ? (
         <div
-          className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-modal-backdrop-in"
+          className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-md flex items-center justify-center p-4 animate-modal-backdrop-in"
           onClick={closeAuctionModal}
         >
           <div
@@ -441,7 +441,7 @@ export default function CollectionClient({
 
       {modal ? (
         <div
-          className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-modal-backdrop-in"
+          className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-md flex items-center justify-center p-4 animate-modal-backdrop-in"
           onClick={closeListModal}
         >
           <div

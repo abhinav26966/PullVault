@@ -14,13 +14,20 @@ function format(secs: number): string {
 
 export default function AuctionsCountdown({ endsAtIso }: { endsAtIso: string }) {
   const endsAt = new Date(endsAtIso).getTime();
-  const [now, setNow] = useState(() => Date.now());
+  // Initialize null so server SSR and client first hydration produce the
+  // same DOM. Real `Date.now()` only kicks in after mount via useEffect,
+  // so the time-dependent text never causes a hydration mismatch.
+  const [now, setNow] = useState<number | null>(null);
   useEffect(() => {
+    setNow(Date.now());
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
-  const secs = Math.max(0, Math.ceil((endsAt - now) / 1000));
+  const secs =
+    now === null ? null : Math.max(0, Math.ceil((endsAt - now) / 1000));
   return (
-    <p className="text-xs text-zinc-500 font-mono">ends in {format(secs)}</p>
+    <p className="text-xs text-zinc-500 font-mono">
+      ends in {secs === null ? '—' : format(secs)}
+    </p>
   );
 }

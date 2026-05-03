@@ -292,6 +292,7 @@ export default function AuctionRoom({
         <div className="bg-white border border-zinc-200 rounded p-3">
           <p className="text-xs text-zinc-500">Time remaining</p>
           <p
+            suppressHydrationWarning
             className={`font-mono tabular-nums ${
               isLive && secsLeft > 0 && secsLeft < 30
                 ? 'text-2xl font-bold text-red-600'
