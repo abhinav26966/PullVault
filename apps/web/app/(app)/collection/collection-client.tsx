@@ -4,6 +4,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import toast from 'react-hot-toast';
 import { useChannel } from '@/hooks/use-socket';
 import { PackTile } from '@/components/pack-tile';
@@ -96,6 +97,12 @@ export default function CollectionClient({
   const router = useRouter();
   const searchParams = useSearchParams();
   const cardsSectionRef = useRef<HTMLDivElement | null>(null);
+  // Portal mount guard: document.body doesn't exist during SSR.
+  // We only render the portaled modals after the first client mount.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   const [showAuctionPrompt, setShowAuctionPrompt] = useState(
     () => searchParams?.get('action') === 'auction',
   );
@@ -369,11 +376,12 @@ export default function CollectionClient({
       )}
       </div>
 
-      {auctionModal ? (
-        <div
-          className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-md flex items-center justify-center p-4 animate-modal-backdrop-in"
-          onClick={closeAuctionModal}
-        >
+      {mounted && auctionModal
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-md flex items-center justify-center p-4 animate-modal-backdrop-in"
+              onClick={closeAuctionModal}
+            >
           <div
             className="relative z-[101] bg-white rounded-lg border border-zinc-200 shadow-xl max-w-sm w-full p-6 space-y-4 animate-modal-panel-in"
             onClick={(e) => e.stopPropagation()}
@@ -436,14 +444,17 @@ export default function CollectionClient({
               </button>
             </div>
           </div>
-        </div>
-      ) : null}
+        </div>,
+            document.body,
+          )
+        : null}
 
-      {modal ? (
-        <div
-          className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-md flex items-center justify-center p-4 animate-modal-backdrop-in"
-          onClick={closeListModal}
-        >
+      {mounted && modal
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-md flex items-center justify-center p-4 animate-modal-backdrop-in"
+              onClick={closeListModal}
+            >
           <div
             className="relative z-[101] bg-white rounded-lg border border-zinc-200 shadow-xl max-w-sm w-full p-6 space-y-4 animate-modal-panel-in"
             onClick={(e) => e.stopPropagation()}
@@ -492,8 +503,10 @@ export default function CollectionClient({
               </button>
             </div>
           </div>
-        </div>
-      ) : null}
+        </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
