@@ -9,6 +9,7 @@ import {
   userCards,
   users,
 } from '@pullvault/db';
+import NavLink from '@/components/nav-link';
 import { requireAuth } from '@/lib/require-auth';
 import AuctionsCountdown from './countdown';
 
@@ -76,7 +77,7 @@ export default async function AuctionsPage() {
                 key={a.id}
                 className={`border-2 rounded bg-white p-2 transition-colors duration-150 hover:border-zinc-400 ${RARITY_BORDER[a.rarity] ?? 'border-zinc-300'}`}
               >
-                <Link href={`/auctions/${a.id}`} className="block">
+                <NavLink href={`/auctions/${a.id}`} className="block">
                   <Image
                     src={a.imageUrl}
                     alt={a.name}
@@ -97,7 +98,7 @@ export default async function AuctionsPage() {
                   </p>
                   <p className="text-xs text-zinc-500">by {a.sellerDisplayName}</p>
                   <AuctionsCountdown endsAtIso={a.endsAt.toISOString()} />
-                </Link>
+                </NavLink>
               </li>
             );
           })}

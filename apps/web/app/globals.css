@@ -8,3 +8,33 @@ html, body {
 body {
   @apply bg-zinc-50 text-zinc-900 antialiased;
 }
+
+/* Top-of-screen navigation progress bar. Runs once per <NavProgress />
+   mount; the component is keyed on pathname so each route change restarts
+   the animation. */
+@keyframes nav-progress {
+  0%   { width: 0;     opacity: 1; }
+  30%  { width: 70%;   opacity: 1; }
+  100% { width: 100%;  opacity: 0; }
+}
+.animate-nav-progress {
+  animation: nav-progress 800ms ease-out forwards;
+}
+
+/* Modal entrance animations. The backdrop fades in; the panel fades in
+   with a subtle scale-up so it reads as "appearing" rather than "popping". */
+@keyframes modal-backdrop-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.animate-modal-backdrop-in {
+  animation: modal-backdrop-in 200ms ease-out forwards;
+}
+
+@keyframes modal-panel-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.animate-modal-panel-in {
+  animation: modal-panel-in 200ms ease-out forwards;
+}

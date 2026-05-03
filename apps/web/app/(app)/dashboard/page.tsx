@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
-import Link from 'next/link';
 import { db, wallets } from '@pullvault/db';
+import NavLink from '@/components/nav-link';
 import { requireAuth } from '@/lib/require-auth';
 
 function fmtUsd(cents: number): string {
@@ -45,14 +45,14 @@ export default async function DashboardPage() {
       </div>
       <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
         {NAV_TILES.map((tile) => (
-          <Link
+          <NavLink
             key={tile.href}
             href={tile.href}
-            className="rounded-lg border border-zinc-200 p-4 hover:bg-zinc-50"
+            className="rounded-lg border border-zinc-200 bg-white p-4 transition-colors duration-150 hover:bg-zinc-100"
           >
             <p className="font-medium">{tile.title}</p>
             <p className="text-sm text-zinc-500">{tile.subtitle}</p>
-          </Link>
+          </NavLink>
         ))}
       </div>
     </div>

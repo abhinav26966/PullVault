@@ -5,6 +5,7 @@ import { eq } from 'drizzle-orm';
 import { db, wallets } from '@pullvault/db';
 import { getSessionUser } from '@/lib/auth';
 import LogoutButton from '@/components/logout-button';
+import NavProgress from '@/components/nav-progress';
 import UserToastSubscriber from '@/components/user-toast-subscriber';
 
 function fmtUsd(cents: number): string {
@@ -51,6 +52,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </div>
       </header>
       <main className="mx-auto max-w-5xl px-6 py-8">{children}</main>
+      <NavProgress />
       <UserToastSubscriber userId={user.id} />
       <Toaster
         position="bottom-right"

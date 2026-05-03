@@ -1,6 +1,6 @@
 import { asc, inArray } from 'drizzle-orm';
-import Link from 'next/link';
 import { db, packDrops } from '@pullvault/db';
+import NavLink from '@/components/nav-link';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,7 +40,7 @@ export default async function DropsPage() {
               key={d.id}
               className={`border rounded p-4 transition-colors duration-150 hover:border-zinc-400 ${TIER_STYLES[d.tier] ?? 'border-zinc-200 bg-white'}`}
             >
-              <Link href={`/drops/${d.id}`} className="block">
+              <NavLink href={`/drops/${d.id}`} className="block">
                 <div className="flex items-baseline justify-between">
                   <span className="text-lg font-semibold">{d.tier}</span>
                   <span className="font-mono">{fmtUsd(d.priceCents)}</span>
@@ -50,7 +50,7 @@ export default async function DropsPage() {
                     ? `${d.inventoryRemaining} of ${d.inventoryTotal} left`
                     : `Scheduled — opens ${new Date(d.startsAt).toLocaleString()}`}
                 </p>
-              </Link>
+              </NavLink>
             </li>
           ))}
         </ul>

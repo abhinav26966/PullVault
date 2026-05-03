@@ -1,8 +1,8 @@
 import { asc, eq } from 'drizzle-orm';
 import Image from 'next/image';
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { cardPrices, cards, db, packCards, packs } from '@pullvault/db';
+import NavLink from '@/components/nav-link';
 import { requireAuth } from '@/lib/require-auth';
 import RipOpenCard from './rip-open-card';
 
@@ -99,9 +99,9 @@ export default async function PackPage({ params }: { params: { id: string } }) {
       </ul>
       <p className="text-sm text-zinc-500">
         These cards are now in your{' '}
-        <Link href="/collection" className="underline hover:text-zinc-900">
+        <NavLink href="/collection" className="underline hover:text-zinc-900">
           collection
-        </Link>
+        </NavLink>
         . List them for sale or start an auction from there.
       </p>
     </div>
