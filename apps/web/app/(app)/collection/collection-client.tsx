@@ -282,7 +282,7 @@ export default function CollectionClient({
 
       {items.length === 0 ? (
         <p className="text-sm text-zinc-500">
-          No cards yet — open a pack to start collecting.{' '}
+          📦 No cards yet — open a pack to start collecting.{' '}
           <Link href="/drops" className="underline hover:text-zinc-900">
             Browse drops →
           </Link>
@@ -293,11 +293,15 @@ export default function CollectionClient({
             const current = prices.get(c.cardId) ?? c.currentPrice;
             const pnl = current - c.acquiredPrice;
             const pnlClass =
-              pnl > 0 ? 'text-green-700' : pnl < 0 ? 'text-red-700' : 'text-zinc-500';
+              pnl > 0
+                ? 'text-green-700'
+                : pnl < 0
+                  ? 'text-red-700'
+                  : 'text-zinc-500';
             return (
               <li
                 key={c.userCardId}
-                className={`border-2 rounded bg-white p-2 ${RARITY_BORDER[c.rarity] ?? 'border-zinc-300'}`}
+                className={`border-2 rounded bg-white p-2 transition-colors duration-150 hover:border-zinc-400 ${RARITY_BORDER[c.rarity] ?? 'border-zinc-300'}`}
               >
                 <Image
                   src={c.imageUrl}

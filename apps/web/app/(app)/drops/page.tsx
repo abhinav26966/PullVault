@@ -31,16 +31,16 @@ export default async function DropsPage() {
       <h1 className="text-2xl font-semibold">Pack Drops</h1>
       {drops.length === 0 ? (
         <p className="text-sm text-zinc-500">
-          No drops scheduled right now — check back later.
+          📦 No drops scheduled right now — check back later.
         </p>
       ) : (
         <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {drops.map((d) => (
             <li
               key={d.id}
-              className={`border rounded p-4 ${TIER_STYLES[d.tier] ?? 'border-zinc-200 bg-white'}`}
+              className={`border rounded p-4 transition-colors duration-150 hover:border-zinc-400 ${TIER_STYLES[d.tier] ?? 'border-zinc-200 bg-white'}`}
             >
-              <Link href={`/drops/${d.id}`} className="block hover:opacity-80">
+              <Link href={`/drops/${d.id}`} className="block">
                 <div className="flex items-baseline justify-between">
                   <span className="text-lg font-semibold">{d.tier}</span>
                   <span className="font-mono">{fmtUsd(d.priceCents)}</span>

@@ -64,7 +64,7 @@ export default async function AuctionsPage() {
 
       {items.length === 0 ? (
         <p className="text-sm text-zinc-500">
-          No live auctions right now — check back later.
+          🔨 No live auctions right now — check back later.
         </p>
       ) : (
         <ul className="grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-5">
@@ -74,7 +74,7 @@ export default async function AuctionsPage() {
             return (
               <li
                 key={a.id}
-                className={`border-2 rounded bg-white p-2 ${RARITY_BORDER[a.rarity] ?? 'border-zinc-300'}`}
+                className={`border-2 rounded bg-white p-2 transition-colors duration-150 hover:border-zinc-400 ${RARITY_BORDER[a.rarity] ?? 'border-zinc-300'}`}
               >
                 <Link href={`/auctions/${a.id}`} className="block">
                   <Image

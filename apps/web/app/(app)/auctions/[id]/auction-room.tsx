@@ -291,7 +291,15 @@ export default function AuctionRoom({
       <div className="grid grid-cols-2 gap-3 text-sm">
         <div className="bg-white border border-zinc-200 rounded p-3">
           <p className="text-xs text-zinc-500">Time remaining</p>
-          <p className="font-mono">{fmtCountdown(secsLeft)}</p>
+          <p
+            className={`font-mono tabular-nums ${
+              isLive && secsLeft > 0 && secsLeft < 30
+                ? 'text-2xl font-bold text-red-600'
+                : ''
+            }`}
+          >
+            {fmtCountdown(secsLeft)}
+          </p>
         </div>
         <div className="bg-white border border-zinc-200 rounded p-3">
           <p className="text-xs text-zinc-500">Watchers</p>

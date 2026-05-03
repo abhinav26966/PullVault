@@ -60,14 +60,14 @@ export default async function MarketPage() {
 
       {items.length === 0 ? (
         <p className="text-sm text-zinc-500">
-          No listings right now — check back later.
+          🛒 No listings right now — check back later.
         </p>
       ) : (
         <ul className="grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-5">
           {items.map((c) => (
             <li
               key={c.id}
-              className={`border-2 rounded bg-white p-2 ${RARITY_BORDER[c.rarity] ?? 'border-zinc-300'}`}
+              className={`border-2 rounded bg-white p-2 transition-colors duration-150 hover:border-zinc-400 ${RARITY_BORDER[c.rarity] ?? 'border-zinc-300'}`}
             >
               <Link href={`/market/${c.id}`} className="block">
                 <Image
