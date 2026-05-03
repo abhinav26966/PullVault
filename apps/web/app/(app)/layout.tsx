@@ -6,6 +6,7 @@ import { db, wallets } from '@pullvault/db';
 import { getSessionUser } from '@/lib/auth';
 import LogoutButton from '@/components/logout-button';
 import NavProgress from '@/components/nav-progress';
+import UserMenu from '@/components/user-menu';
 import UserToastSubscriber from '@/components/user-toast-subscriber';
 
 function fmtUsd(cents: number): string {
@@ -41,12 +42,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             </Link>
           </div>
           <div className="flex items-center gap-4 text-sm">
-            <span className="text-zinc-700">
-              {user.displayName} · <span className="font-mono">{fmtUsd(available)}</span>
-              {held > 0 ? (
-                <span className="text-zinc-500"> · in auctions {fmtUsd(held)}</span>
-              ) : null}
-            </span>
+            <UserMenu
+              displayName={user.displayName}
+              email={user.email}
+              createdAtIso={user.createdAt.toISOString()}
+              balanceAvailable={available}
+              balanceHeld={held}
+            />
             <LogoutButton />
           </div>
         </div>
