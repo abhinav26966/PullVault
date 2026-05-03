@@ -1,0 +1,48 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "jsx": "preserve",
+    "incremental": true,
+    "ignoreDeprecations": "5.0",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "./*"
+      ],
+      "@pullvault/db": [
+        "../../packages/db/src/index.ts"
+      ],
+      "@pullvault/db/*": [
+        "../../packages/db/src/*"
+      ],
+      "@pullvault/domain": [
+        "../../packages/domain/src/index.ts"
+      ],
+      "@pullvault/domain/*": [
+        "../../packages/domain/src/*"
+      ],
+      "@pullvault/shared": [
+        "../../packages/shared/src/index.ts"
+      ],
+      "@pullvault/shared/*": [
+        "../../packages/shared/src/*"
+      ]
+    },
+    "allowJs": true
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    ".next"
+  ]
+}
