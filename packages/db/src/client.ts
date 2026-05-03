@@ -17,6 +17,12 @@ if (!url) {
 // See ARCHITECTURE §16 and Supabase's official Drizzle guide.
 export const queryClient = postgres(url, { prepare: false });
 
-export const db = drizzle(queryClient, { schema });
+export const db = drizzle(queryClient, {
+  schema,
+  // Set DB_DEBUG=1 in .env.local to print every SQL statement Drizzle sends.
+  // Off by default; the env toggle stays as a debug knob for future timing or
+  // serialisation issues (Phase 10 used it to verify the anti-snipe SQL).
+  logger: process.env.DB_DEBUG === '1',
+});
 
 export type DB = typeof db;

@@ -78,6 +78,18 @@ interface ListModalState {
   suggestedCents: number;
 }
 
+interface AuctionModalState {
+  userCardId: string;
+  cardName: string;
+  suggestedCents: number;
+}
+
+const DURATION_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
+  { value: 300, label: '5 minutes' },
+  { value: 1800, label: '30 minutes' },
+  { value: 7200, label: '2 hours' },
+];
+
 export default function CollectionClient({
   items,
   unopened,
@@ -94,6 +106,12 @@ export default function CollectionClient({
   const [priceInput, setPriceInput] = useState('');
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  const [auctionModal, setAuctionModal] = useState<AuctionModalState | null>(null);
+  const [auctionStartInput, setAuctionStartInput] = useState('');
+  const [auctionDuration, setAuctionDuration] = useState<number>(1800);
+  const [auctionError, setAuctionError] = useState<string | null>(null);
+  const [auctionSubmitting, setAuctionSubmitting] = useState(false);
 
   // Wire contract for `prices:global`: publisher sends
   // `{ prices: Array<{ cardId, price }> }`. The Phase 6 pubsub bridge
@@ -174,6 +192,61 @@ export default function CollectionClient({
     }
   }
 
+  function openAuctionModal(item: Item): void {
+    const suggested = prices.get(item.cardId) ?? item.currentPrice;
+    setAuctionModal({
+      userCardId: item.userCardId,
+      cardName: item.name,
+      suggestedCents: suggested,
+    });
+    setAuctionStartInput((Math.max(1, Math.floor(suggested / 2)) / 100).toFixed(2));
+    setAuctionDuration(1800);
+    setAuctionError(null);
+  }
+
+  function closeAuctionModal(): void {
+    setAuctionModal(null);
+    setAuctionStartInput('');
+    setAuctionError(null);
+    setAuctionSubmitting(false);
+  }
+
+  async function submitAuction(): Promise<void> {
+    if (!auctionModal) return;
+    const cents = parseDollarsToCents(auctionStartInput);
+    if (cents === null) {
+      setAuctionError('Enter a positive starting bid like 5.00.');
+      return;
+    }
+    setAuctionSubmitting(true);
+    setAuctionError(null);
+    try {
+      const res = await fetch('/api/auctions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          userCardId: auctionModal.userCardId,
+          startPriceCents: cents,
+          durationSec: auctionDuration,
+        }),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        auctionId?: string;
+        message?: string;
+      };
+      if (!res.ok) {
+        setAuctionError(j.message ?? `Failed (${res.status})`);
+        return;
+      }
+      if (j.auctionId) {
+        router.push(`/auctions/${j.auctionId}`);
+        router.refresh();
+      }
+    } finally {
+      setAuctionSubmitting(false);
+    }
+  }
+
   return (
     <div className="space-y-8">
       <div>
@@ -237,18 +310,90 @@ export default function CollectionClient({
                   {c.rarity} · <span className="font-mono">{fmtUsd(current)}</span>
                 </p>
                 <p className={`text-xs font-mono ${pnlClass}`}>{fmtUsdSigned(pnl)}</p>
-                <button
-                  type="button"
-                  onClick={() => openListModal(c)}
-                  className="mt-2 w-full text-xs border border-zinc-300 rounded px-2 py-1 hover:bg-zinc-50"
-                >
-                  List for sale
-                </button>
+                <div className="mt-2 flex gap-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => openListModal(c)}
+                    className="flex-1 border border-zinc-300 rounded px-2 py-1 hover:bg-zinc-50"
+                  >
+                    List
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openAuctionModal(c)}
+                    className="flex-1 border border-zinc-300 rounded px-2 py-1 hover:bg-zinc-50"
+                  >
+                    Auction
+                  </button>
+                </div>
               </li>
             );
           })}
         </ul>
       )}
+
+      {auctionModal ? (
+        <div
+          className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+          onClick={closeAuctionModal}
+        >
+          <div
+            className="bg-white rounded shadow-lg max-w-sm w-full p-6 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-semibold">Auction &ldquo;{auctionModal.cardName}&rdquo;</h2>
+            <p className="text-sm text-zinc-500">
+              Market price{' '}
+              <span className="font-mono">{fmtUsd(auctionModal.suggestedCents)}</span>
+            </p>
+            <div className="space-y-1">
+              <label className="text-sm">Starting bid (USD)</label>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={auctionStartInput}
+                onChange={(e) => setAuctionStartInput(e.target.value)}
+                placeholder="0.00"
+                autoFocus
+                className="w-full border border-zinc-300 rounded px-3 py-2 font-mono"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm">Duration</label>
+              <select
+                value={auctionDuration}
+                onChange={(e) => setAuctionDuration(Number(e.target.value))}
+                className="w-full border border-zinc-300 rounded px-3 py-2"
+              >
+                {DURATION_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {auctionError ? <p className="text-sm text-red-600">{auctionError}</p> : null}
+            <div className="flex gap-2 justify-end">
+              <button
+                type="button"
+                onClick={closeAuctionModal}
+                disabled={auctionSubmitting}
+                className="px-4 py-2 rounded text-sm border border-zinc-300 hover:bg-zinc-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={submitAuction}
+                disabled={auctionSubmitting}
+                className="px-4 py-2 rounded text-sm bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-50"
+              >
+                {auctionSubmitting ? 'Starting…' : 'Start auction'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {modal ? (
         <div

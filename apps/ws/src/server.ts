@@ -4,6 +4,7 @@ import { Server as IoServer } from 'socket.io';
 import { authenticate } from './auth';
 import { registerDisconnectHandler } from './handlers/disconnect';
 import { registerSubscribeHandler } from './handlers/subscribe';
+import { runAuctionCloserNow, scheduleAuctionCloser } from './jobs/auction-closer';
 import { runDropActivatorNow, scheduleDropActivator } from './jobs/drop-activator';
 import { startPubSub } from './pubsub';
 
@@ -43,6 +44,10 @@ async function main(): Promise<void> {
   await runDropActivatorNow();
   scheduleDropActivator();
   console.log('[ws] drop-activator scheduled (every 60s)');
+
+  await runAuctionCloserNow();
+  scheduleAuctionCloser();
+  console.log('[ws] auction-closer scheduled (every 5s)');
 
   httpServer.listen(PORT, () => {
     console.log(`[ws] listening on :${PORT}, CORS origin ${WEB_PUBLIC_URL}`);

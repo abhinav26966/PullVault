@@ -105,3 +105,33 @@ export class InvalidPriceError extends DomainError {
     super('INVALID_PRICE', 'Listing price must be a positive amount in cents.', 400);
   }
 }
+export class AuctionNotFoundError extends DomainError {
+  constructor() {
+    super('AUCTION_NOT_FOUND', 'Auction not found.', 404);
+  }
+}
+export class NotAuctionOwnerError extends DomainError {
+  constructor() {
+    super('NOT_AUCTION_OWNER', 'Only the seller can perform that action.', 403);
+  }
+}
+export class AuctionHasBidsError extends DomainError {
+  constructor() {
+    super('AUCTION_HAS_BIDS', 'Auctions with bids cannot be cancelled.', 409);
+  }
+}
+export class BidTooHighError extends DomainError {
+  constructor() {
+    super('BID_TOO_HIGH', 'Bid exceeds the fat-finger guard (100× current bid).', 409);
+  }
+}
+export class InvalidAuctionDurationError extends DomainError {
+  constructor() {
+    super('INVALID_AUCTION_DURATION', 'Auction duration must be 5 minutes, 30 minutes, or 2 hours.', 400);
+  }
+}
+export class InvalidStartingBidError extends DomainError {
+  constructor() {
+    super('INVALID_STARTING_BID', 'Starting bid must be a positive amount in cents.', 400);
+  }
+}
