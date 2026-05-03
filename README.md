@@ -2,8 +2,8 @@
 
 > Buy a mystery pack. Rip it. Discover what you pulled. Hold it, trade it, or auction it.
 
-🔗 **Live demo:** _TBD (Vercel + Railway)_
-📦 **Source:** _TBD (GitHub)_
+🔗 **Live demo:** https://pull-vault-web-goeq.vercel.app  ·  WS server: https://pullvault-production-9d82.up.railway.app
+📦 **Source:** https://github.com/abhinav26966/PullVault
 🎥 **Walkthrough:** _TBD (Loom, 8 min)_
 
 ---
