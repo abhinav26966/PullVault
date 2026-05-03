@@ -15,7 +15,9 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "db:smoke": "tsx src/__smoke__/connect.ts"
+    "db:smoke": "tsx src/__smoke__/connect.ts",
+    "db:pipeline": "tsx src/price-pipeline/run.ts",
+    "db:seed": "tsx src/price-pipeline/run.ts"
   },
   "dependencies": {
     "@pullvault/shared": "workspace:*",
