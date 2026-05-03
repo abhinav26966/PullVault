@@ -75,6 +75,8 @@ interface ListModalState {
   suggestedCents: number;
 }
 
+type CardDetailState = Item;
+
 interface AuctionModalState {
   userCardId: string;
   cardName: string;
@@ -133,6 +135,14 @@ export default function CollectionClient({
   const [auctionDuration, setAuctionDuration] = useState<number>(1800);
   const [auctionError, setAuctionError] = useState<string | null>(null);
   const [auctionSubmitting, setAuctionSubmitting] = useState(false);
+
+  const [cardDetail, setCardDetail] = useState<CardDetailState | null>(null);
+  function openCardDetail(item: Item): void {
+    setCardDetail(item);
+  }
+  function closeCardDetail(): void {
+    setCardDetail(null);
+  }
 
   // Wire contract for `prices:global`: publisher sends
   // `{ prices: Array<{ cardId, price }> }`. The Phase 6 pubsub bridge
@@ -335,40 +345,30 @@ export default function CollectionClient({
                   ? 'text-red-700'
                   : 'text-zinc-500';
             return (
-              <li
-                key={c.userCardId}
-                className={`border-2 rounded bg-white p-2 transition-colors duration-150 hover:border-zinc-400 ${RARITY_BORDER[c.rarity] ?? 'border-zinc-300'}`}
-              >
-                <Image
-                  src={c.imageUrl}
-                  alt={c.name}
-                  width={245}
-                  height={342}
-                  className="w-full h-auto"
-                  unoptimized
-                />
-                <p className="mt-2 text-xs font-medium">{c.name}</p>
-                <p className="text-xs text-zinc-500">{c.setName}</p>
-                <p className="text-xs text-zinc-500">
-                  {c.rarity} · <span className="font-mono">{fmtUsd(current)}</span>
-                </p>
-                <p className={`text-xs font-mono ${pnlClass}`}>{fmtUsdSigned(pnl)}</p>
-                <div className="mt-2 flex gap-2 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => openListModal(c)}
-                    className="flex-1 border border-zinc-300 rounded px-2 py-1 hover:bg-zinc-100 transition-colors duration-150"
-                  >
-                    List
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openAuctionModal(c)}
-                    className="flex-1 border border-zinc-300 rounded px-2 py-1 hover:bg-zinc-100 transition-colors duration-150"
-                  >
-                    Auction
-                  </button>
-                </div>
+              <li key={c.userCardId}>
+                <button
+                  type="button"
+                  onClick={() => openCardDetail(c)}
+                  className={`w-full text-left border-2 rounded bg-white p-2 transition-all duration-150 hover:border-zinc-400 hover:shadow-md cursor-pointer ${RARITY_BORDER[c.rarity] ?? 'border-zinc-300'}`}
+                >
+                  <Image
+                    src={c.imageUrl}
+                    alt={c.name}
+                    width={245}
+                    height={342}
+                    className="w-full h-auto"
+                    unoptimized
+                  />
+                  <p className="mt-2 text-xs font-medium">{c.name}</p>
+                  <p className="text-xs text-zinc-500">{c.setName}</p>
+                  <p className="text-xs text-zinc-500">
+                    {c.rarity} ·{' '}
+                    <span className="font-mono">{fmtUsd(current)}</span>
+                  </p>
+                  <p className={`text-xs font-mono ${pnlClass}`}>
+                    {fmtUsdSigned(pnl)}
+                  </p>
+                </button>
               </li>
             );
           })}
@@ -504,6 +504,103 @@ export default function CollectionClient({
             </div>
           </div>
         </div>,
+            document.body,
+          )
+        : null}
+
+      {mounted && cardDetail
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-md flex items-center justify-center p-4 animate-modal-backdrop-in"
+              onClick={closeCardDetail}
+            >
+              <div
+                className="relative z-[101] bg-white rounded-lg border border-zinc-200 shadow-xl max-w-md w-full p-6 space-y-4 animate-modal-panel-in"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  onClick={closeCardDetail}
+                  aria-label="Close"
+                  className="absolute top-3 right-3 text-zinc-400 hover:text-zinc-700 text-xl leading-none"
+                >
+                  ×
+                </button>
+                {(() => {
+                  const current = prices.get(cardDetail.cardId) ?? cardDetail.currentPrice;
+                  const pnl = current - cardDetail.acquiredPrice;
+                  const pnlClass =
+                    pnl > 0
+                      ? 'text-green-700'
+                      : pnl < 0
+                        ? 'text-red-700'
+                        : 'text-zinc-500';
+                  return (
+                    <>
+                      <div className="flex justify-center pt-2">
+                        <Image
+                          src={cardDetail.imageUrl}
+                          alt={cardDetail.name}
+                          width={245}
+                          height={342}
+                          className={`w-64 h-auto rounded border-2 ${RARITY_BORDER[cardDetail.rarity] ?? 'border-zinc-300'}`}
+                          unoptimized
+                        />
+                      </div>
+                      <div className="text-center space-y-1">
+                        <h2 className="text-lg font-semibold">{cardDetail.name}</h2>
+                        <p className="text-sm text-zinc-500">{cardDetail.setName}</p>
+                        <p className="text-xs uppercase tracking-widest text-zinc-500">
+                          Rarity {cardDetail.rarity}
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-3 gap-3 text-center text-sm bg-zinc-50 border border-zinc-200 rounded-md p-3">
+                        <div>
+                          <p className="text-xs text-zinc-500">Acquired</p>
+                          <p className="font-mono">
+                            {fmtUsd(cardDetail.acquiredPrice)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-zinc-500">Market</p>
+                          <p className="font-mono">{fmtUsd(current)}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-zinc-500">P&amp;L</p>
+                          <p className={`font-mono ${pnlClass}`}>
+                            {fmtUsdSigned(pnl)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex gap-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const item = cardDetail;
+                            closeCardDetail();
+                            openListModal(item);
+                          }}
+                          className="flex-1 px-4 py-2.5 rounded-md text-sm font-medium border border-zinc-300 hover:bg-zinc-100 transition-colors duration-150"
+                        >
+                          List for Sale
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const item = cardDetail;
+                            closeCardDetail();
+                            openAuctionModal(item);
+                          }}
+                          className="flex-1 px-4 py-2.5 rounded-md text-sm font-medium bg-zinc-900 text-white hover:bg-zinc-800 transition-colors duration-150"
+                        >
+                          Start Auction
+                        </button>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            </div>,
             document.body,
           )
         : null}
