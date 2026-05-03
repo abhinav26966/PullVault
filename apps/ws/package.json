@@ -2,9 +2,29 @@
   "name": "@pullvault/ws",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit"
+  },
   "dependencies": {
     "@pullvault/db": "workspace:*",
     "@pullvault/domain": "workspace:*",
-    "@pullvault/shared": "workspace:*"
+    "@pullvault/shared": "workspace:*",
+    "dotenv": "^16.4.7",
+    "drizzle-orm": "^0.45.2",
+    "ioredis": "^5.4.1",
+    "jsonwebtoken": "^9.0.3",
+    "node-cron": "^3.0.3",
+    "socket.io": "^4.8.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^25.6.0",
+    "@types/node-cron": "^3.0.11",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
   }
 }

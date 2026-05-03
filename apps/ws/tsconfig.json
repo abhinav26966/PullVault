@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "outDir": "dist",
+    "baseUrl": ".",
+    "paths": {
+      "@pullvault/db": ["../../packages/db/src/index.ts"],
+      "@pullvault/db/*": ["../../packages/db/src/*"],
+      "@pullvault/domain": ["../../packages/domain/src/index.ts"],
+      "@pullvault/domain/*": ["../../packages/domain/src/*"],
+      "@pullvault/shared": ["../../packages/shared/src/index.ts"],
+      "@pullvault/shared/*": ["../../packages/shared/src/*"]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

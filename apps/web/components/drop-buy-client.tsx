@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { useChannel } from '@/hooks/use-socket';
 
 interface InitialDrop {
   id: string;
@@ -22,20 +23,36 @@ export default function DropBuyClient({ initial }: { initial: InitialDrop }) {
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [inventoryRemaining, setInventoryRemaining] = useState(
+    initial.inventoryRemaining,
+  );
+  const [serverState, setServerState] = useState<InitialDrop['state']>(
+    initial.state,
+  );
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(id);
   }, []);
 
+  useChannel(`drop:${initial.id}`, {
+    onEvent: (payload) => {
+      if (typeof payload.inventoryRemaining === 'number') {
+        setInventoryRemaining(payload.inventoryRemaining);
+      }
+      if (payload.soldOut === true) setServerState('SOLD_OUT');
+      if (payload.state === 'OPEN') setServerState('OPEN');
+    },
+    onReconnect: () => router.refresh(),
+  });
+
   const startsAtMs = new Date(initial.startsAt).getTime();
   const secondsUntil = Math.max(0, Math.ceil((startsAtMs - now) / 1000));
   const reachedStart = now >= startsAtMs;
 
   const isOpen =
-    initial.state === 'OPEN' || (initial.state === 'SCHEDULED' && reachedStart);
-  const soldOut =
-    initial.state === 'SOLD_OUT' || initial.inventoryRemaining === 0;
+    serverState === 'OPEN' || (serverState === 'SCHEDULED' && reachedStart);
+  const soldOut = serverState === 'SOLD_OUT' || inventoryRemaining === 0;
 
   async function buy() {
     setBusy(true);
@@ -71,7 +88,7 @@ export default function DropBuyClient({ initial }: { initial: InitialDrop }) {
         <div className="flex items-baseline justify-between">
           <span className="text-sm text-zinc-500">Inventory</span>
           <span className="font-mono">
-            {initial.inventoryRemaining} / {initial.inventoryTotal}
+            {inventoryRemaining} / {initial.inventoryTotal}
             {soldOut ? <span className="text-red-600 ml-2">SOLD OUT</span> : null}
           </span>
         </div>

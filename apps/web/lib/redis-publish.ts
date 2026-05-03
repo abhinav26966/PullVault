@@ -1,14 +1,32 @@
 import 'server-only';
+import Redis from 'ioredis';
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __pullvault_redis_publisher: Redis | undefined;
+}
+
+function getPublisher(): Redis {
+  if (!globalThis.__pullvault_redis_publisher) {
+    const url = process.env.REDIS_URL;
+    if (!url) throw new Error('REDIS_URL is required');
+    const client = new Redis(url, {
+      maxRetriesPerRequest: 3,
+      lazyConnect: false,
+    });
+    client.on('error', (err) => console.error('[redis publisher]', err));
+    globalThis.__pullvault_redis_publisher = client;
+  }
+  return globalThis.__pullvault_redis_publisher;
+}
 
 /**
- * Stub for the Redis Pub/Sub publish call. Phase 6 swaps this for a real
- * ioredis publisher. The stub exists so Phase 5's transaction code already
- * uses the eventual `publish(channel, payload)` API without conditional
- * branching — Phase 6 just replaces the implementation.
+ * Publish a payload to a Redis Pub/Sub channel.
  *
- * IMPORTANT: never call publish() before the transaction commits. If the
- * commit rolls back, you've broadcast a phantom event. ARCHITECTURE §6.1.
+ * Call ONLY after the surrounding db.transaction() has committed. Per
+ * ARCHITECTURE §6.1 step 8, publishing before commit can broadcast a
+ * phantom event if the transaction rolls back.
  */
 export async function publish(channel: string, payload: unknown): Promise<void> {
-  console.info(`[publish stub] ${channel}`, payload);
+  await getPublisher().publish(channel, JSON.stringify(payload));
 }
