@@ -26,9 +26,17 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <div className="min-h-screen">
       <header className="border-b border-zinc-200 bg-white">
         <div className="mx-auto max-w-5xl px-6 py-3 flex items-center justify-between">
-          <Link href="/dashboard" className="text-lg font-semibold">
-            PullVault
-          </Link>
+          <div className="flex items-baseline gap-4">
+            <Link href="/dashboard" className="text-lg font-semibold">
+              PullVault
+            </Link>
+            <Link
+              href="/admin/economics"
+              className="text-xs text-zinc-500 hover:text-zinc-900"
+            >
+              Economics →
+            </Link>
+          </div>
           <div className="flex items-center gap-4 text-sm">
             <span className="text-zinc-700">
               {user.displayName} · <span className="font-mono">{fmtUsd(available)}</span>
