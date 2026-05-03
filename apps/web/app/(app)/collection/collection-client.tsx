@@ -390,9 +390,16 @@ export default function CollectionClient({
                 type="button"
                 onClick={submitAuction}
                 disabled={auctionSubmitting}
-                className="px-4 py-2 rounded text-sm bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-50"
+                className="px-4 py-2 rounded text-sm bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-50 inline-flex items-center justify-center"
               >
-                {auctionSubmitting ? 'Starting…' : 'Start auction'}
+                {auctionSubmitting ? (
+                  <>
+                    <span className="spinner" />
+                    Creating auction…
+                  </>
+                ) : (
+                  'Start auction'
+                )}
               </button>
             </div>
           </div>
@@ -439,9 +446,16 @@ export default function CollectionClient({
                 type="button"
                 onClick={submitListing}
                 disabled={submitting}
-                className="px-4 py-2 rounded text-sm bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-50"
+                className="px-4 py-2 rounded text-sm bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-50 inline-flex items-center justify-center"
               >
-                {submitting ? 'Listing…' : 'Create listing'}
+                {submitting ? (
+                  <>
+                    <span className="spinner" />
+                    Creating listing…
+                  </>
+                ) : (
+                  'Create listing'
+                )}
               </button>
             </div>
           </div>

@@ -73,9 +73,16 @@ export default function ListingActions({ listingId, isSeller, priceCents }: Prop
           )
         }
         disabled={busy}
-        className="bg-zinc-900 text-white rounded px-6 py-3 hover:bg-zinc-800 disabled:opacity-50"
+        className="bg-zinc-900 text-white rounded px-6 py-3 hover:bg-zinc-800 disabled:opacity-50 inline-flex items-center justify-center"
       >
-        {busy ? 'Buying…' : `Buy for ${fmtUsd(priceCents)}`}
+        {busy ? (
+          <>
+            <span className="spinner" />
+            Buying…
+          </>
+        ) : (
+          `Buy for ${fmtUsd(priceCents)}`
+        )}
       </button>
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
     </div>

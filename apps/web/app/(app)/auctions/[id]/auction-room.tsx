@@ -355,9 +355,16 @@ export default function AuctionRoom({
               type="button"
               onClick={placeBid}
               disabled={bidBusy}
-              className="bg-zinc-900 text-white rounded px-4 py-2 hover:bg-zinc-800 disabled:opacity-50"
+              className="bg-zinc-900 text-white rounded px-4 py-2 hover:bg-zinc-800 disabled:opacity-50 inline-flex items-center justify-center"
             >
-              {bidBusy ? 'Bidding…' : 'Bid'}
+              {bidBusy ? (
+                <>
+                  <span className="spinner" />
+                  Placing bid…
+                </>
+              ) : (
+                'Bid'
+              )}
             </button>
           </div>
           {youAreHigh ? (

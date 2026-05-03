@@ -75,10 +75,16 @@ export default function DropBuyClient({ initial }: { initial: InitialDrop }) {
     }
   }
 
-  let buttonLabel = `Buy for ${fmtUsd(initial.priceCents)}`;
-  if (busy) buttonLabel = 'Buying…';
-  else if (soldOut) buttonLabel = 'Sold out';
-  else if (!isOpen) buttonLabel = `Opens in ${secondsUntil}s`;
+  let buttonContent: React.ReactNode = `Buy for ${fmtUsd(initial.priceCents)}`;
+  if (busy) {
+    buttonContent = (
+      <>
+        <span className="spinner" />
+        Buying…
+      </>
+    );
+  } else if (soldOut) buttonContent = 'Sold out';
+  else if (!isOpen) buttonContent = `Opens in ${secondsUntil}s`;
 
   return (
     <div className="max-w-md space-y-4">
@@ -104,9 +110,9 @@ export default function DropBuyClient({ initial }: { initial: InitialDrop }) {
       <button
         onClick={buy}
         disabled={!isOpen || soldOut || busy}
-        className="w-full bg-zinc-900 text-white rounded py-3 hover:bg-zinc-800 disabled:opacity-50"
+        className="w-full bg-zinc-900 text-white rounded py-3 hover:bg-zinc-800 disabled:opacity-50 inline-flex items-center justify-center"
       >
-        {buttonLabel}
+        {buttonContent}
       </button>
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
     </div>

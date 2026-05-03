@@ -24,7 +24,7 @@ export default function NavLink({
   href,
   children,
   className = '',
-  pendingClassName = 'opacity-60 cursor-wait',
+  pendingClassName = 'opacity-50 cursor-wait',
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
