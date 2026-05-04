@@ -10,17 +10,17 @@
 
 ## What is PullVault?
 
-PullVault is a digital collectibles platform built around the Pokemon TCG. Users sign up with a $1,000 paper-trading balance, buy limited mystery packs, reveal cards one by one to discover their real market value, and then build a portfolio they can trade peer-to-peer or auction live to other users.
+A digital collectibles platform built around the Pokemon TCG. New users get a $1,000 paper-trading balance, buy limited mystery packs, reveal cards, and build a portfolio they can trade peer-to-peer or auction off live.
 
-Every card has a market price drawn from real Pokemon TCG data, and prices move continuously, so the portfolio stays alive between sessions. Packs drop on a schedule with limited inventory, so the act of buying one is a competitive event in itself.
+Card prices come from real Pokemon TCG market data and move on the platform's refresh cadence. Packs drop on a schedule with limited inventory, so a drop going live is a real-time competition for stock.
 
-The product is a deliberate fusion of three existing experiences:
+The product borrows from three places:
 
-- **Pack ripping** like Packz.io or Courtyard, where the dopamine comes from the reveal
-- **A trading marketplace** like StockX, where every item has a real market value
-- **Live auctions** like Heritage or Goldin, where bidders compete in real time
+- **Pack ripping** — Packz.io, Courtyard. The reveal is the moment.
+- **A trading marketplace** — StockX. Every item has a real market value.
+- **Live auctions** — Heritage, Goldin. Bidders compete in real time.
 
-The core loop is simple: deposit, drop, rip, hold or trade, repeat.
+Core loop: deposit, drop, rip, hold or trade, repeat.
 
 ---
 
