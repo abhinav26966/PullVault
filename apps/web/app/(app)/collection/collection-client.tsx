@@ -13,12 +13,32 @@ interface Item {
   userCardId: string;
   cardId: string;
   acquiredPrice: number;
+  acquiredVia: 'PACK' | 'LISTING' | 'AUCTION';
   name: string;
   setName: string;
   rarity: 'C' | 'U' | 'R' | 'E' | 'L';
   imageUrl: string;
   currentPrice: number;
 }
+
+type SortBy = 'recent' | 'most-valuable' | 'biggest-gain' | 'biggest-loss';
+type RarityFilter = 'ALL' | Item['rarity'];
+
+const SORT_OPTIONS: ReadonlyArray<{ value: SortBy; label: string }> = [
+  { value: 'recent', label: 'Recent' },
+  { value: 'most-valuable', label: 'Most valuable' },
+  { value: 'biggest-gain', label: 'Biggest gain' },
+  { value: 'biggest-loss', label: 'Biggest loss' },
+];
+
+const RARITY_OPTIONS: ReadonlyArray<{ key: RarityFilter; label: string }> = [
+  { key: 'ALL', label: 'All' },
+  { key: 'C', label: 'Common' },
+  { key: 'U', label: 'Uncommon' },
+  { key: 'R', label: 'Rare' },
+  { key: 'E', label: 'Epic' },
+  { key: 'L', label: 'Legendary' },
+];
 
 interface UnopenedPack {
   id: string;
@@ -130,6 +150,9 @@ export default function CollectionClient({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  const [sortBy, setSortBy] = useState<SortBy>('recent');
+  const [rarityFilter, setRarityFilter] = useState<RarityFilter>('ALL');
+
   const [auctionModal, setAuctionModal] = useState<AuctionModalState | null>(null);
   const [auctionStartInput, setAuctionStartInput] = useState('');
   const [auctionDuration, setAuctionDuration] = useState<number>(1800);
@@ -176,6 +199,51 @@ export default function CollectionClient({
     }
     return sum;
   }, [items, prices]);
+
+  // Total return — limited to LISTING/AUCTION acquisitions where the
+  // cost basis is the buyer's actual outlay. PACK acquisitions are
+  // excluded because the cost basis would be the per-card pack price
+  // share, which makes the percentage misleading.
+  const { totalReturnCents, returnPct, hasTrackedCards } = useMemo(() => {
+    let totalReturnCents = 0;
+    let sumAcquired = 0;
+    let count = 0;
+    for (const item of items) {
+      if (item.acquiredVia === 'PACK') continue;
+      const current = prices.get(item.cardId) ?? item.currentPrice;
+      totalReturnCents += current - item.acquiredPrice;
+      sumAcquired += item.acquiredPrice;
+      count += 1;
+    }
+    const returnPct = sumAcquired > 0 ? (totalReturnCents / sumAcquired) * 100 : 0;
+    return { totalReturnCents, returnPct, hasTrackedCards: count > 0 };
+  }, [items, prices]);
+
+  const displayItems = useMemo(() => {
+    const getCurrent = (i: Item): number => prices.get(i.cardId) ?? i.currentPrice;
+    let list =
+      rarityFilter === 'ALL'
+        ? items
+        : items.filter((i) => i.rarity === rarityFilter);
+
+    switch (sortBy) {
+      case 'recent':
+        // Server returns oldest-first by acquired_at; reverse for newest-first.
+        return [...list].reverse();
+      case 'most-valuable':
+        return [...list].sort((a, b) => getCurrent(b) - getCurrent(a));
+      case 'biggest-gain':
+        return [...list].sort(
+          (a, b) =>
+            getCurrent(b) - b.acquiredPrice - (getCurrent(a) - a.acquiredPrice),
+        );
+      case 'biggest-loss':
+        return [...list].sort(
+          (a, b) =>
+            getCurrent(a) - a.acquiredPrice - (getCurrent(b) - b.acquiredPrice),
+        );
+    }
+  }, [items, prices, sortBy, rarityFilter]);
 
   function openListModal(item: Item): void {
     const suggested = prices.get(item.cardId) ?? item.currentPrice;
@@ -289,6 +357,29 @@ export default function CollectionClient({
           {items.length} {items.length === 1 ? 'card' : 'cards'} · Total value{' '}
           <span className="font-mono text-zinc-900">{fmtUsd(totalValue)}</span>
         </p>
+        <p
+          className={`text-xs mt-1 ${
+            totalReturnCents > 0
+              ? 'text-green-700'
+              : totalReturnCents < 0
+                ? 'text-red-700'
+                : 'text-zinc-500'
+          }`}
+        >
+          Total return since signup:{' '}
+          <span className="font-mono">
+            {hasTrackedCards
+              ? `${fmtUsdSigned(totalReturnCents)} (${returnPct >= 0 ? '+' : ''}${returnPct.toFixed(1)}%)`
+              : '$0.00 (0.0%)'}
+          </span>
+          <span
+            className="ml-1 text-zinc-400 cursor-help select-none"
+            title="Calculated from cards bought through marketplace and auctions. Pack cards are excluded — the cost basis for a packed card is the pack price spread across N cards, which makes the percentage misleading."
+            aria-label="What's counted in this number"
+          >
+            ⓘ
+          </span>
+        </p>
       </div>
 
       {unopened.length > 0 ? (
@@ -334,8 +425,44 @@ export default function CollectionClient({
           </Link>
         </p>
       ) : (
+        <>
+          <div className="flex flex-wrap items-center gap-3">
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as SortBy)}
+              className="border border-zinc-300 rounded-md px-3 py-1.5 text-sm bg-white hover:border-zinc-400 transition-colors focus:outline-none focus:ring-2 focus:ring-zinc-500"
+              aria-label="Sort cards"
+            >
+              {SORT_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <div className="flex flex-wrap gap-2">
+              {RARITY_OPTIONS.map((opt) => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => setRarityFilter(opt.key)}
+                  className={
+                    rarityFilter === opt.key
+                      ? 'px-3 py-1 text-xs font-medium rounded-full bg-zinc-900 text-white transition-colors'
+                      : 'px-3 py-1 text-xs rounded-full bg-white border border-zinc-200 text-zinc-700 hover:border-zinc-400 hover:bg-zinc-100 transition-colors'
+                  }
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {displayItems.length === 0 ? (
+            <p className="text-sm text-zinc-500">
+              No cards match this filter — try a different rarity.
+            </p>
+          ) : (
         <ul className="grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-5">
-          {items.map((c) => {
+          {displayItems.map((c) => {
             const current = prices.get(c.cardId) ?? c.currentPrice;
             const pnl = current - c.acquiredPrice;
             const pnlClass =
@@ -373,6 +500,8 @@ export default function CollectionClient({
             );
           })}
         </ul>
+          )}
+        </>
       )}
       </div>
 

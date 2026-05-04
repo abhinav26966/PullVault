@@ -19,6 +19,7 @@ export default async function CollectionPage() {
       userCardId: userCards.id,
       cardId: userCards.cardId,
       acquiredPrice: userCards.acquiredPrice,
+      acquiredVia: userCards.acquiredVia,
       name: cards.name,
       setName: cards.setName,
       rarity: cards.rarity,
