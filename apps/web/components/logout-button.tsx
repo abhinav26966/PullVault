@@ -1,21 +1,28 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useState, useTransition } from 'react';
 
 export default function LogoutButton() {
   const router = useRouter();
-  const [busy, setBusy] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  // Same pattern as login/signup — useTransition keeps the button label in
+  // "Logging out…" state through the route change to /login, not just
+  // through the auth fetch.
+  const [navigating, startNavigating] = useTransition();
+  const busy = submitting || navigating;
 
   async function logout() {
-    setBusy(true);
+    setSubmitting(true);
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
+    } finally {
+      setSubmitting(false);
+    }
+    startNavigating(() => {
       router.replace('/login');
       router.refresh();
-    } finally {
-      setBusy(false);
-    }
+    });
   }
 
   return (

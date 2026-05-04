@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState, type FormEvent } from 'react';
+import { useState, useTransition, type FormEvent } from 'react';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -10,27 +10,43 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // useTransition tracks the route-change phase that follows a successful
+  // auth fetch. Without it, the button would un-spinner the instant the
+  // POST returns, leaving the user staring at the form for ~500ms while
+  // /dashboard's RSC fetch + render + hydrate finish.
+  const [navigating, startNavigating] = useTransition();
+  const busy = submitting || navigating;
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
+
+    let res: Response;
     try {
-      const res = await fetch('/api/auth/login', {
+      res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
-      if (!res.ok) {
-        const j = (await res.json().catch(() => ({}))) as { message?: string };
-        setError(j.message ?? `Login failed (${res.status})`);
-        return;
-      }
+    } catch {
+      setError('Network error — try again.');
+      setSubmitting(false);
+      return;
+    }
+
+    if (!res.ok) {
+      const j = (await res.json().catch(() => ({}))) as { message?: string };
+      setError(j.message ?? `Login failed (${res.status})`);
+      setSubmitting(false);
+      return;
+    }
+
+    setSubmitting(false);
+    startNavigating(() => {
       router.replace('/dashboard');
       router.refresh();
-    } finally {
-      setSubmitting(false);
-    }
+    });
   }
 
   return (
@@ -64,10 +80,10 @@ export default function LoginPage() {
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
         <button
           type="submit"
-          disabled={submitting}
+          disabled={busy}
           className="w-full bg-zinc-900 text-white rounded py-2 hover:bg-zinc-800 disabled:opacity-50 inline-flex items-center justify-center"
         >
-          {submitting ? (
+          {busy ? (
             <>
               <span className="spinner" />
               Signing in…

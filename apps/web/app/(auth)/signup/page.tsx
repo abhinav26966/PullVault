@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState, type FormEvent } from 'react';
+import { useState, useTransition, type FormEvent } from 'react';
 
 export default function SignupPage() {
   const router = useRouter();
@@ -11,27 +11,42 @@ export default function SignupPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // useTransition keeps the button in pending state through the post-signup
+  // navigation to /dashboard, not just through the POST. See login/page.tsx
+  // for the full rationale.
+  const [navigating, startNavigating] = useTransition();
+  const busy = submitting || navigating;
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
+
+    let res: Response;
     try {
-      const res = await fetch('/api/auth/signup', {
+      res = await fetch('/api/auth/signup', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ email, displayName, password }),
       });
-      if (!res.ok) {
-        const j = (await res.json().catch(() => ({}))) as { message?: string };
-        setError(j.message ?? `Signup failed (${res.status})`);
-        return;
-      }
+    } catch {
+      setError('Network error — try again.');
+      setSubmitting(false);
+      return;
+    }
+
+    if (!res.ok) {
+      const j = (await res.json().catch(() => ({}))) as { message?: string };
+      setError(j.message ?? `Signup failed (${res.status})`);
+      setSubmitting(false);
+      return;
+    }
+
+    setSubmitting(false);
+    startNavigating(() => {
       router.replace('/dashboard');
       router.refresh();
-    } finally {
-      setSubmitting(false);
-    }
+    });
   }
 
   return (
@@ -77,10 +92,10 @@ export default function SignupPage() {
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
         <button
           type="submit"
-          disabled={submitting}
+          disabled={busy}
           className="w-full bg-zinc-900 text-white rounded py-2 hover:bg-zinc-800 disabled:opacity-50 inline-flex items-center justify-center"
         >
-          {submitting ? (
+          {busy ? (
             <>
               <span className="spinner" />
               Creating account…
