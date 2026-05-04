@@ -61,9 +61,6 @@ export default async function MarketPage() {
 
       {items.length === 0 ? (
         <div className="flex flex-col items-center justify-center text-center py-16 px-4 space-y-4">
-          <span className="text-6xl" aria-hidden>
-            🛒
-          </span>
           <p className="text-base text-zinc-700">No listings right now</p>
           <p className="text-sm text-zinc-500 max-w-md">
             When users put cards up for sale, they&rsquo;ll appear here. Be the first
