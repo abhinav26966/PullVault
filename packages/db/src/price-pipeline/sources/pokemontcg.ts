@@ -33,25 +33,38 @@ export const pokemonTcgSource: PriceSource = {
 
     const out: RawCard[] = [];
 
+    // Per-set fault isolation: pokemontcg.io is a free public API and its
+    // /v2/cards endpoint occasionally returns 504/404 for valid set ids
+    // (Cloudflare timeouts, transient origin failures). A single bad set
+    // should NOT abort the whole pipeline tick — the surviving sets still
+    // carry useful price updates, and the next hourly tick will retry the
+    // bad one. We log a warning so the failure is visible in the cron logs
+    // but don't propagate.
     for (const setId of setIds) {
-      const params = new URLSearchParams({
-        q: `set.id:${setId}`,
-        pageSize: String(PAGE_SIZE),
-      });
-      const url = `${BASE}/cards?${params.toString()}`;
-      const res = await fetch(url, { headers });
-      if (!res.ok) {
-        throw new Error(
-          `pokemontcg.io fetch failed for set "${setId}": ${res.status} ${res.statusText}`,
-        );
+      try {
+        const params = new URLSearchParams({
+          q: `set.id:${setId}`,
+          pageSize: String(PAGE_SIZE),
+        });
+        const url = `${BASE}/cards?${params.toString()}`;
+        const res = await fetch(url, { headers });
+        if (!res.ok) {
+          console.warn(
+            `[pokemontcg] skipping set "${setId}": ${res.status} ${res.statusText}`,
+          );
+          continue;
+        }
+        const json = (await res.json()) as CardsResponse;
+        const cards = json.data ?? [];
+        const limited =
+          opts?.perSet && opts.perSet < cards.length
+            ? cards.slice(0, opts.perSet)
+            : cards;
+        out.push(...limited);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[pokemontcg] skipping set "${setId}": ${msg}`);
       }
-      const json = (await res.json()) as CardsResponse;
-      const cards = json.data ?? [];
-      const limited =
-        opts?.perSet && opts.perSet < cards.length
-          ? cards.slice(0, opts.perSet)
-          : cards;
-      out.push(...limited);
     }
 
     return out;
