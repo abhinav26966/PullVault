@@ -2,9 +2,12 @@
 
 > Buy a mystery pack. Rip it. See what it's worth. Hold it, trade it, or auction it.
 
-**Live demo:** https://pull-vault-web-goeq.vercel.app 
+**Live demo:** https://pull-vault-web-goeq.vercel.app
+
 **WS:** https://pullvault-production-9d82.up.railway.app
+
 **Source:** https://github.com/abhinav26966/PullVault
+
 **Walkthrough:** https://drive.google.com/file/d/1e-XvsPCadu4tSGXFAxc7bnNiq4a_syjj/view?usp=sharing
 
 ---
