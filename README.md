@@ -4,7 +4,7 @@
 
 🔗 **Live demo:** https://pull-vault-web-goeq.vercel.app  ·  WS: https://pullvault-production-9d82.up.railway.app
 📦 **Source:** https://github.com/abhinav26966/PullVault
-🎥 **Walkthrough:** _TBD (Loom, 8 min)_
+🎥 **Walkthrough:** https://drive.google.com/file/d/1e-XvsPCadu4tSGXFAxc7bnNiq4a_syjj/view?usp=sharing
 
 ---
 
