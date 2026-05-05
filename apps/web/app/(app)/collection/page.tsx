@@ -5,6 +5,7 @@ import {
   db,
   packs,
   userCards,
+  wallets,
 } from '@pullvault/db';
 import { requireAuth } from '@/lib/require-auth';
 import CollectionClient from './collection-client';
@@ -42,5 +43,21 @@ export default async function CollectionPage() {
     .where(and(eq(packs.ownerId, user.id), isNull(packs.openedAt)))
     .orderBy(asc(packs.purchasedAt));
 
-  return <CollectionClient items={items} unopened={unopened} />;
+  const [w] = await db
+    .select({
+      available: wallets.balanceAvailable,
+      held: wallets.balanceHeld,
+    })
+    .from(wallets)
+    .where(eq(wallets.userId, user.id))
+    .limit(1);
+  const walletTotalCents = (w?.available ?? 0) + (w?.held ?? 0);
+
+  return (
+    <CollectionClient
+      items={items}
+      unopened={unopened}
+      walletTotalCents={walletTotalCents}
+    />
+  );
 }

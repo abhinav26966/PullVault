@@ -63,6 +63,29 @@ function fmtUsdSigned(cents: number): string {
   return `${cents > 0 ? '+' : ''}${fmtUsd(cents)}`;
 }
 
+function describeActivityEvent(e: ActivityEvent): string {
+  switch (e.kind) {
+    case 'SIGNUP_BONUS':
+      return 'Welcome bonus — $1,000 starting balance';
+    case 'PACK_PURCHASE':
+      return `Bought ${e.packTier ?? ''} pack${e.pricePaid ? ` (${fmtUsd(e.pricePaid)})` : ''}`.trim();
+    case 'PACK_OPENED':
+      return `Opened ${e.packTier ?? ''} pack — pulled ${e.cardCount ?? 0} cards (≈${fmtUsd(e.packEvAtPurchase ?? 0)})`.trim();
+    case 'LISTING_PURCHASE':
+      return `Bought ${e.cardName ?? 'a card'} from marketplace`;
+    case 'LISTING_SALE':
+      return `Sold ${e.cardName ?? 'a card'}${e.listingPrice ? ` (gross ${fmtUsd(e.listingPrice)})` : ''}`;
+    case 'AUCTION_HOLD':
+      return `Placed bid on ${e.cardName ?? 'auction'}${e.bidAmount ? ` (${fmtUsd(e.bidAmount)} held)` : ''}`;
+    case 'AUCTION_RELEASE':
+      return `Outbid on ${e.cardName ?? 'auction'} — funds released`;
+    case 'AUCTION_SETTLE_BUYER':
+      return `Won auction for ${e.cardName ?? 'a card'}${e.auctionFinalBid ? ` (paid ${fmtUsd(e.auctionFinalBid)})` : ''}`;
+    case 'AUCTION_SETTLE_SELLER':
+      return `Auction sold: ${e.cardName ?? 'card'}${e.auctionFinalBid ? ` (final bid ${fmtUsd(e.auctionFinalBid)})` : ''}`;
+  }
+}
+
 interface PriceUpdate {
   cardId: string;
   price: number;
@@ -89,6 +112,32 @@ function parseDollarsToCents(input: string): number | null {
   return cents > 0 ? cents : null;
 }
 
+type ActivityKind =
+  | 'SIGNUP_BONUS'
+  | 'PACK_PURCHASE'
+  | 'PACK_OPENED'
+  | 'LISTING_PURCHASE'
+  | 'LISTING_SALE'
+  | 'AUCTION_HOLD'
+  | 'AUCTION_RELEASE'
+  | 'AUCTION_SETTLE_BUYER'
+  | 'AUCTION_SETTLE_SELLER';
+
+interface ActivityEvent {
+  id: string;
+  kind: ActivityKind;
+  amountCents: number;
+  createdAt: string;
+  packTier?: 'BRONZE' | 'SILVER' | 'GOLD';
+  cardName?: string;
+  pricePaid?: number;
+  listingPrice?: number;
+  auctionFinalBid?: number;
+  bidAmount?: number;
+  packEvAtPurchase?: number;
+  cardCount?: number;
+}
+
 interface ListModalState {
   userCardId: string;
   cardName: string;
@@ -109,12 +158,18 @@ const DURATION_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
   { value: 7200, label: '2 hours' },
 ];
 
+// Mirrors SIGNUP_BONUS_CENTS in apps/web/app/api/auth/signup/route.ts.
+// "Total return since signup" is measured against this anchor.
+const SIGNUP_BONUS_CENTS = 100_000;
+
 export default function CollectionClient({
   items,
   unopened,
+  walletTotalCents,
 }: {
   items: Item[];
   unopened: UnopenedPack[];
+  walletTotalCents: number;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -200,24 +255,56 @@ export default function CollectionClient({
     return sum;
   }, [items, prices]);
 
-  // Total return — limited to LISTING/AUCTION acquisitions where the
-  // cost basis is the buyer's actual outlay. PACK acquisitions are
-  // excluded because the cost basis would be the per-card pack price
-  // share, which makes the percentage misleading.
-  const { totalReturnCents, returnPct, hasTrackedCards } = useMemo(() => {
-    let totalReturnCents = 0;
-    let sumAcquired = 0;
-    let count = 0;
-    for (const item of items) {
-      if (item.acquiredVia === 'PACK') continue;
-      const current = prices.get(item.cardId) ?? item.currentPrice;
-      totalReturnCents += current - item.acquiredPrice;
-      sumAcquired += item.acquiredPrice;
-      count += 1;
-    }
-    const returnPct = sumAcquired > 0 ? (totalReturnCents / sumAcquired) * 100 : 0;
-    return { totalReturnCents, returnPct, hasTrackedCards: count > 0 };
-  }, [items, prices]);
+  // Total return — net worth vs. signup bonus. Counts every held card at
+  // live market price, the wallet (available + held), and unopened packs at
+  // price paid. Realized profit from sales lives in the wallet component;
+  // realized loss from pack opens is reflected by current_card_value <
+  // pack_price_paid. Wallet is SSR-snapshotted; price moves live via WS.
+  const { totalReturnCents, returnPct, cardsValue, packsValue, netWorth } =
+    useMemo(() => {
+      let cardsValue = 0;
+      for (const item of items) {
+        cardsValue += prices.get(item.cardId) ?? item.currentPrice;
+      }
+      const packsValue = unopened.reduce((s, p) => s + p.pricePaid, 0);
+      const netWorth = walletTotalCents + cardsValue + packsValue;
+      const totalReturnCents = netWorth - SIGNUP_BONUS_CENTS;
+      const returnPct = (totalReturnCents / SIGNUP_BONUS_CENTS) * 100;
+      return { totalReturnCents, returnPct, cardsValue, packsValue, netWorth };
+    }, [items, prices, unopened, walletTotalCents]);
+
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyEvents, setHistoryEvents] = useState<ActivityEvent[] | null>(
+    null,
+  );
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!historyOpen || historyEvents !== null) return;
+    let cancelled = false;
+    setHistoryLoading(true);
+    setHistoryError(null);
+    fetch('/api/me/activity')
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return (await r.json()) as { events: ActivityEvent[] };
+      })
+      .then((j) => {
+        if (!cancelled) setHistoryEvents(j.events);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        const msg = err instanceof Error ? err.message : 'load failed';
+        setHistoryError(msg);
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [historyOpen, historyEvents]);
 
   const displayItems = useMemo(() => {
     const getCurrent = (i: Item): number => prices.get(i.cardId) ?? i.currentPrice;
@@ -368,17 +455,17 @@ export default function CollectionClient({
         >
           Total return since signup:{' '}
           <span className="font-mono">
-            {hasTrackedCards
-              ? `${fmtUsdSigned(totalReturnCents)} (${returnPct >= 0 ? '+' : ''}${returnPct.toFixed(1)}%)`
-              : '$0.00 (0.0%)'}
+            {`${fmtUsdSigned(totalReturnCents)} (${returnPct >= 0 ? '+' : ''}${returnPct.toFixed(1)}%)`}
           </span>
-          <span
-            className="ml-1 text-zinc-400 cursor-help select-none"
-            title="Calculated from cards bought through marketplace and auctions. Pack cards are excluded — the cost basis for a packed card is the pack price spread across N cards, which makes the percentage misleading."
-            aria-label="What's counted in this number"
+          <button
+            type="button"
+            onClick={() => setHistoryOpen(true)}
+            title="See full activity history"
+            aria-label="See full activity history"
+            className="ml-1 text-zinc-400 hover:text-zinc-700 transition-colors duration-150 cursor-pointer select-none"
           >
             ⓘ
-          </span>
+          </button>
         </p>
       </div>
 
@@ -728,6 +815,119 @@ export default function CollectionClient({
                     </>
                   );
                 })()}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {mounted && historyOpen
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-md flex items-center justify-center p-4 animate-modal-backdrop-in"
+              onClick={() => setHistoryOpen(false)}
+            >
+              <div
+                className="relative z-[101] bg-white rounded-lg border border-zinc-200 shadow-xl max-w-2xl w-full max-h-[85vh] flex flex-col animate-modal-panel-in"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  onClick={() => setHistoryOpen(false)}
+                  aria-label="Close"
+                  className="absolute top-3 right-3 text-zinc-400 hover:text-zinc-700 text-xl leading-none"
+                >
+                  ×
+                </button>
+
+                <div className="p-6 pb-4 border-b border-zinc-200">
+                  <h2 className="text-lg font-semibold">Activity history</h2>
+                  <p className="text-xs text-zinc-500 mt-1">
+                    How your account got from {fmtUsd(SIGNUP_BONUS_CENTS)} to{' '}
+                    <span className="font-mono">{fmtUsd(netWorth)}</span>.
+                  </p>
+                  <div className="grid grid-cols-4 gap-3 mt-4 text-xs">
+                    <div>
+                      <p className="text-zinc-500">Wallet</p>
+                      <p className="font-mono text-zinc-900">
+                        {fmtUsd(walletTotalCents)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-zinc-500">Cards</p>
+                      <p className="font-mono text-zinc-900">
+                        {fmtUsd(cardsValue)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-zinc-500">Packs</p>
+                      <p className="font-mono text-zinc-900">
+                        {fmtUsd(packsValue)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-zinc-500">Return</p>
+                      <p
+                        className={`font-mono ${
+                          totalReturnCents > 0
+                            ? 'text-green-700'
+                            : totalReturnCents < 0
+                              ? 'text-red-700'
+                              : 'text-zinc-900'
+                        }`}
+                      >
+                        {fmtUsdSigned(totalReturnCents)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto">
+                  {historyLoading ? (
+                    <div className="p-6 text-sm text-zinc-500">Loading…</div>
+                  ) : historyError ? (
+                    <div className="p-6 text-sm text-red-600">
+                      Couldn&apos;t load history: {historyError}
+                    </div>
+                  ) : !historyEvents || historyEvents.length === 0 ? (
+                    <div className="p-6 text-sm text-zinc-500">
+                      No activity yet.
+                    </div>
+                  ) : (
+                    <ul className="divide-y divide-zinc-100">
+                      {historyEvents.map((e) => {
+                        const dimmed = e.amountCents === 0;
+                        const amountClass = dimmed
+                          ? 'text-zinc-400'
+                          : e.amountCents > 0
+                            ? 'text-green-700'
+                            : 'text-red-700';
+                        return (
+                          <li
+                            key={e.id}
+                            className={`px-6 py-3 flex items-start justify-between gap-4 text-sm ${
+                              dimmed ? 'text-zinc-400' : 'text-zinc-800'
+                            }`}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate">
+                                {describeActivityEvent(e)}
+                              </p>
+                              <p className="text-xs text-zinc-400 mt-0.5">
+                                {new Date(e.createdAt).toLocaleString()}
+                              </p>
+                            </div>
+                            <p
+                              className={`font-mono shrink-0 tabular-nums ${amountClass}`}
+                            >
+                              {dimmed ? '—' : fmtUsdSigned(e.amountCents)}
+                            </p>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
               </div>
             </div>,
             document.body,
