@@ -8,7 +8,7 @@
  *   balance_available  = SUM(wallet_ledger.amount) - balance_held
  *
  * Usage:
- *   pnpm -F @pullvault/web tsx scripts/reset-ledger-balance.ts
+ *   pnpm -F @pullvault/web reset-ledger
  *
  * Refuses to set a negative balance_available (which would also fail the
  * Postgres CHECK constraint) — that case implies a real data integrity

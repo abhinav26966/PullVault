@@ -8,7 +8,10 @@
     "start": "next start -p 3000",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "seed-test-drop": "tsx scripts/seed-test-drop.ts"
+    "seed-test-drop": "tsx scripts/seed-test-drop.ts",
+    "reset-ledger": "tsx scripts/reset-ledger-balance.ts",
+    "verify-ledger": "tsx scripts/verify-ledger.ts",
+    "verify-activity": "tsx scripts/verify-activity.ts"
   },
   "dependencies": {
     "@pullvault/db": "workspace:*",

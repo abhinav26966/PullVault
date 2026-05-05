@@ -35,6 +35,9 @@ async function runOnce(): Promise<void> {
     );
   const openCount = Number(row?.value ?? 0);
   if (openCount >= REPLENISH_THRESHOLD) {
+    console.log(
+      `[drop-replenisher] tick: ${openCount} OPEN drop(s) with inventory — healthy, skipping (threshold ${REPLENISH_THRESHOLD})`,
+    );
     return;
   }
 
