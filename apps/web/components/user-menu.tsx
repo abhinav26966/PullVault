@@ -1,14 +1,24 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useChannel } from '@/hooks/use-socket';
 
 interface Props {
+  userId: string;
   displayName: string;
   email: string;
   createdAtIso: string;
   balanceAvailable: number;
   balanceHeld: number;
 }
+
+const WALLET_REFETCH_EVENTS = new Set([
+  'card_sold',
+  'card_bought',
+  'auction_won',
+  'auction_sold',
+  'outbid',
+]);
 
 function fmtUsd(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
@@ -21,14 +31,56 @@ function fmtUsd(cents: number): string {
  * outside click or Escape.
  */
 export default function UserMenu({
+  userId,
   displayName,
   email,
   createdAtIso,
-  balanceAvailable,
-  balanceHeld,
+  balanceAvailable: initialAvailable,
+  balanceHeld: initialHeld,
 }: Props) {
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
+
+  // Header balance is reactive to its own WS subscription rather than
+  // depending on the (app) layout's RSC re-render via router.refresh(). The
+  // layout-level subscriber's callback occasionally fails to fire (HMR /
+  // Strict-Mode double-mount tangling the listener) — making this component
+  // self-sufficient is the bulletproof path.
+  const [balanceAvailable, setBalanceAvailable] = useState(initialAvailable);
+  const [balanceHeld, setBalanceHeld] = useState(initialHeld);
+
+  // Sync if the layout re-renders with fresh SSR values (e.g., on navigation
+  // back to a route after a page-level wallet change).
+  useEffect(() => {
+    setBalanceAvailable(initialAvailable);
+  }, [initialAvailable]);
+  useEffect(() => {
+    setBalanceHeld(initialHeld);
+  }, [initialHeld]);
+
+  async function refetchWallet(): Promise<void> {
+    try {
+      const res = await fetch('/api/wallet', { credentials: 'same-origin' });
+      if (!res.ok) return;
+      const j = (await res.json()) as { available?: unknown; held?: unknown };
+      if (typeof j.available === 'number') setBalanceAvailable(j.available);
+      if (typeof j.held === 'number') setBalanceHeld(j.held);
+    } catch {
+      // Stay on last known good values; next event or page nav will resync.
+    }
+  }
+
+  useChannel(`user:${userId}`, {
+    onEvent: (payload) => {
+      const ev = (payload as { event?: string }).event;
+      if (typeof ev === 'string' && WALLET_REFETCH_EVENTS.has(ev)) {
+        void refetchWallet();
+      }
+    },
+    onReconnect: () => {
+      void refetchWallet();
+    },
+  });
 
   useEffect(() => {
     if (!open) return;

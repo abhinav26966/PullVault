@@ -43,6 +43,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </div>
           <div className="flex items-center gap-4 text-sm">
             <UserMenu
+              userId={user.id}
               displayName={user.displayName}
               email={user.email}
               createdAtIso={user.createdAt.toISOString()}
