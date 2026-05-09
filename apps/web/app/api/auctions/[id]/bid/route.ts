@@ -4,7 +4,10 @@ import { z } from 'zod';
 import {
   auctions,
   bids,
+  cardPrices,
+  cards,
   db,
+  userCards,
   walletLedger,
   wallets,
 } from '@pullvault/db';
@@ -70,6 +73,19 @@ export const POST = withErrors<{ id: string }>(
   const body = bodySchema.parse(await req.json());
   const newBidAmount = body.bidCents;
 
+  // Part B §11 — market-price lookup for the validator's fat-finger cap.
+  // Read pre-tx; market price is stable enough for a sanity bound and
+  // doesn't need transactional consistency with the bid itself.
+  const [marketRow] = await db
+    .select({ marketCents: cardPrices.price })
+    .from(auctions)
+    .innerJoin(userCards, eq(userCards.id, auctions.userCardId))
+    .innerJoin(cards, eq(cards.id, userCards.cardId))
+    .innerJoin(cardPrices, eq(cardPrices.cardId, cards.id))
+    .where(eq(auctions.id, auctionId))
+    .limit(1);
+  const marketCents = marketRow?.marketCents ?? null;
+
   const result = await db.transaction(async (tx) => {
     const [auction] = await tx
       .select({
@@ -100,6 +116,7 @@ export const POST = withErrors<{ id: string }>(
       auction.currentBidAmount,
       auction.startingBid,
       newBidAmount,
+      marketCents,
     );
     if (!validation.ok) {
       if (validation.reason === 'TOO_LOW') throw new BidTooLowError();

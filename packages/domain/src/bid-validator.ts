@@ -2,7 +2,14 @@
 const MIN_INCREMENT_CENTS = 50;
 const MIN_INCREMENT_PERCENT = 0.05;
 
-/** Fat-finger guard: reject bids over 100x baseline. */
+/**
+ * Fat-finger guard. Hard cap = FAT_FINGER_MULTIPLIER × reference, where the
+ * reference is `max(currentBidOrStarting, marketCents)` when marketCents is
+ * known. Cap-against-only-baseline fails on low-baseline auctions where a
+ * bidder could legitimately push toward a high market value; cap-against-
+ * only-market fails on auctions whose card is mispriced low. Taking the
+ * higher of the two avoids both edge cases.
+ */
 const FAT_FINGER_MULTIPLIER = 100;
 
 /**
@@ -28,10 +35,17 @@ export function validateBid(
   currentBid: number | null,
   startingBid: number,
   newBid: number,
+  marketCents?: number | null,
 ): BidValidationResult {
   const min = computeMinValidBid(currentBid, startingBid);
   if (newBid < min) return { ok: false, reason: 'TOO_LOW' };
   const baseline = currentBid ?? startingBid;
-  if (newBid > baseline * FAT_FINGER_MULTIPLIER) return { ok: false, reason: 'TOO_HIGH' };
+  const reference =
+    marketCents != null && marketCents > 0
+      ? Math.max(baseline, marketCents)
+      : baseline;
+  if (newBid > reference * FAT_FINGER_MULTIPLIER) {
+    return { ok: false, reason: 'TOO_HIGH' };
+  }
   return { ok: true };
 }
