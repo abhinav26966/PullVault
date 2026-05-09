@@ -24,6 +24,7 @@ export {
   listings,
   packCards,
   packDrops,
+  packEconomicsSnapshots,
   packs,
   PLATFORM_USER_ID,
   rarityEnum,
@@ -44,6 +45,7 @@ import {
   listings,
   packCards,
   packDrops,
+  packEconomicsSnapshots,
   packs,
   userCards,
   walletLedger,
@@ -87,3 +89,6 @@ export type NewAuction = InferInsertModel<typeof auctions>;
 
 export type Bid = InferSelectModel<typeof bids>;
 export type NewBid = InferInsertModel<typeof bids>;
+
+export type PackEconomicsSnapshot = InferSelectModel<typeof packEconomicsSnapshots>;
+export type NewPackEconomicsSnapshot = InferInsertModel<typeof packEconomicsSnapshots>;

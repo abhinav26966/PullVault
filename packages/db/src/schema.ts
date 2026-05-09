@@ -6,6 +6,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgEnum,
   pgTable,
   text,
@@ -204,6 +205,11 @@ export const packs = pgTable(
       .defaultNow(),
     openedAt: timestamp('opened_at', { withTimezone: true }),
     packEvAtPurchase: bigint('pack_ev_at_purchase', { mode: 'number' }).notNull(),
+    // Part B §9 — snapshot of the rarity weights this pack was rolled with.
+    // Nullable for backfill compatibility; new packs always set it; pack-roller
+    // falls back to TIER_CONFIG when null. Once backfill runs, this becomes
+    // the source of truth for "what weights produced this pack."
+    rarityWeights: jsonb('rarity_weights'),
   },
   (t) => ({
     ownerIdx: index('packs_owner_idx').on(t.ownerId),
@@ -337,6 +343,42 @@ export const walletLedger = pgTable(
     typeCreatedIdx: index('wallet_ledger_type_created_idx').on(t.type, t.createdAt),
     auctionIdx: index('wallet_ledger_auction_idx').on(t.auctionId),
     listingIdx: index('wallet_ledger_listing_idx').on(t.listingId),
+  }),
+);
+
+// Part B §9 — pack_economics_snapshots (append-only solver output)
+//
+// Every recompute writes a new row. `is_active=true` selects the snapshot the
+// drop-buy path uses for fresh purchases. Existing in-flight packs read their
+// own `packs.rarity_weights` snapshot, so a new active row never affects them.
+//
+// notes carries solver self-test output. When the per-slot Lagrangian and the
+// single-tilt fallback disagree by >0.5% the row is written with
+// `is_active=false` and notes='self-test failed: lagrangian=<EV>, tilt=<EV>,
+// delta=<pct>' so the dashboard can render the failure loudly.
+export const packEconomicsSnapshots = pgTable(
+  'pack_economics_snapshots',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tier: tierEnum('tier').notNull(),
+    weights: jsonb('weights').notNull(),
+    targetMargin: numeric('target_margin', { precision: 5, scale: 4 }).notNull(),
+    evCents: integer('ev_cents').notNull(),
+    winRate: numeric('win_rate', { precision: 5, scale: 4 }).notNull(),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    notes: text('notes'),
+  },
+  (t) => ({
+    // Partial index: "fetch latest active snapshot for tier" — the only hot
+    // read path. Keeps the index small (≤ 3 rows in steady state).
+    activeTierIdx: uniqueIndex('pack_economics_snapshots_active_tier_uq')
+      .on(t.tier)
+      .where(sql`${t.isActive} = true`),
+    tierCreatedIdx: index('pack_economics_snapshots_tier_created_idx').on(
+      t.tier,
+      t.createdAt.desc(),
+    ),
   }),
 );
 

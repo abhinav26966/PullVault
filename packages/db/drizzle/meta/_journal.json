@@ -8,6 +8,13 @@
       "when": 1777762546789,
       "tag": "0000_common_vampiro",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1778328167443,
+      "tag": "0001_fair_lake",
+      "breakpoints": true
     }
   ]
 }
