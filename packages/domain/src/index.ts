@@ -47,7 +47,10 @@ export {
 
 export {
   FLOOR_WEIGHTS,
+  simulate,
   solveWeights,
+  type SimulatorInput,
+  type SimulatorResult,
   type SlotWeights,
   type SolvedSlot,
   type SolverInput,
