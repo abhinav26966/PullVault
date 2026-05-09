@@ -1,4 +1,4 @@
-import { and, eq, lte, sql } from 'drizzle-orm';
+import { and, eq, inArray, lte, sql } from 'drizzle-orm';
 import cron, { type ScheduledTask } from 'node-cron';
 import {
   PLATFORM_USER_ID,
@@ -11,6 +11,8 @@ import {
 } from '@pullvault/db';
 import { calculateAuctionFee } from '@pullvault/domain';
 import { publisher } from '../redis';
+
+const SEALED_WINDOW_MS = Number(process.env.SEALED_WINDOW_MS ?? 60_000);
 
 interface SettleResult {
   state: 'SETTLED' | 'CLOSED';
@@ -44,7 +46,13 @@ async function settleOne(auctionId: string): Promise<SettleResult | null> {
         currentBidUserId: auctions.currentBidUserId,
       })
       .from(auctions)
-      .where(and(eq(auctions.id, auctionId), eq(auctions.state, 'OPEN')))
+      // Part B §11: sealed-state auctions settle via the same path. Both
+      // states are pre-settlement; the SEALED → SETTLED transition is just
+      // the OPEN → SETTLED transition with bids that arrived during the
+      // sealed window included in the highest-bid calculation.
+      .where(
+        and(eq(auctions.id, auctionId), inArray(auctions.state, ['OPEN', 'SEALED'])),
+      )
       .for('update');
     if (!a) return null;
 
@@ -150,12 +158,51 @@ async function settleOne(auctionId: string): Promise<SettleResult | null> {
   });
 }
 
+async function transitionToSealed(): Promise<string[]> {
+  // Part B §11. Pre-settlement step that flips OPEN → SEALED for any auction
+  // whose ends_at - SEALED_WINDOW_MS has just passed (and which has not yet
+  // hit ends_at; the settlement pass below handles those).
+  const transitioned = await db
+    .update(auctions)
+    .set({ state: 'SEALED' })
+    .where(
+      and(
+        eq(auctions.state, 'OPEN'),
+        sql`${auctions.endsAt} - (${SEALED_WINDOW_MS} || ' milliseconds')::interval <= now()`,
+        sql`${auctions.endsAt} > now()`,
+      ),
+    )
+    .returning({ id: auctions.id, endsAt: auctions.endsAt });
+
+  for (const row of transitioned) {
+    await publisher.publish(
+      `auction:${row.id}`,
+      JSON.stringify({
+        event: 'sealed',
+        endsAt: row.endsAt.toISOString(),
+        sealedWindowMs: SEALED_WINDOW_MS,
+      }),
+    );
+    console.log(`[auction-closer] OPEN → SEALED ${row.id}`);
+  }
+  return transitioned.map((r) => r.id);
+}
+
 async function runOnce(): Promise<void> {
+  // First pass: open auctions about to expire enter the sealed window.
+  await transitionToSealed();
+
   const now = new Date();
   const expired = await db
     .select({ id: auctions.id })
     .from(auctions)
-    .where(and(eq(auctions.state, 'OPEN'), lte(auctions.endsAt, now)));
+    .where(
+      and(
+        // Both pre-settlement states settle through the same path.
+        inArray(auctions.state, ['OPEN', 'SEALED']),
+        lte(auctions.endsAt, now),
+      ),
+    );
 
   if (expired.length === 0) return;
 

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { and, eq, gte, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import {
   auctions,
@@ -85,11 +85,16 @@ export const POST = withErrors<{ id: string }>(
       .where(eq(auctions.id, auctionId))
       .for('update');
     if (!auction) throw new AuctionNotFoundError();
-    if (auction.state !== 'OPEN') throw new AuctionClosedError();
+    // Part B §11: bids continue during the SEALED window. Both states are
+    // pre-settlement; only CLOSED / SETTLED reject.
+    if (auction.state !== 'OPEN' && auction.state !== 'SEALED') {
+      throw new AuctionClosedError();
+    }
 
     const now = new Date();
     if (auction.endsAt <= now) throw new AuctionClosedError();
     if (auction.sellerId === bidder.id) throw new SellerCannotBidError();
+    const wasSealed = auction.state === 'SEALED';
 
     const validation = validateBid(
       auction.currentBidAmount,
@@ -152,38 +157,67 @@ export const POST = withErrors<{ id: string }>(
     // intent in §15 ("bidPlacedAt + 30s") is the wall-clock moment of the
     // write, so use clock_timestamp() which advances within the tx.
     // RETURNING hands back the actual stored value, not a JS-side echo.
+    // Part B §11 — extension_count gets incremented exactly when the
+    // anti-snipe GREATEST() clamp pushes ends_at forward, i.e. when the
+    // pre-extension ends_at is within ANTI_SNIPE_EXTENSION_SECONDS of
+    // clock_timestamp(). Inline CASE keeps this single-statement.
     const [updated] = await tx
       .update(auctions)
       .set({
         currentBidAmount: newBidAmount,
         currentBidUserId: bidder.id,
         endsAt: sql`GREATEST(${auctions.endsAt}, clock_timestamp() + make_interval(secs => ${ANTI_SNIPE_EXTENSION_SECONDS}))`,
+        extensionCount: sql`${auctions.extensionCount} + CASE WHEN ${auctions.endsAt} < clock_timestamp() + make_interval(secs => ${ANTI_SNIPE_EXTENSION_SECONDS}) THEN 1 ELSE 0 END`,
       })
-      .where(and(eq(auctions.id, auctionId), eq(auctions.state, 'OPEN')))
-      .returning({ endsAt: auctions.endsAt });
+      .where(
+        and(
+          eq(auctions.id, auctionId),
+          inArray(auctions.state, ['OPEN', 'SEALED']),
+        ),
+      )
+      .returning({
+        endsAt: auctions.endsAt,
+        extensionCount: auctions.extensionCount,
+      });
     if (!updated) throw new Error('auction update matched zero rows');
 
     await tx.insert(bids).values({
       auctionId,
       bidderId: bidder.id,
       amount: newBidAmount,
+      isSealed: wasSealed,
     });
 
     return {
       newBidAmount,
       newEndsAt: updated.endsAt,
+      newExtensionCount: updated.extensionCount,
       previousBidderId: auction.currentBidUserId,
+      wasSealed,
     };
   });
 
-  await publish(`auction:${auctionId}`, {
-    event: 'bid',
-    currentBid: result.newBidAmount,
-    currentBidUserId: bidder.id,
-    currentBidderDisplayName: bidder.displayName,
-    endsAt: result.newEndsAt.toISOString(),
-    placedAt: new Date().toISOString(),
-  });
+  // Part B §11 — sealed bids are redacted on the PUBLIC channel. Watchers
+  // see only "a sealed bid landed" with no amount or bidder. The bidder
+  // themselves still gets the confirmation via the HTTP response. The
+  // previous bidder's "you've been outbid" notification on user:{id} is
+  // also redacted (no amount).
+  if (result.wasSealed) {
+    await publish(`auction:${auctionId}`, {
+      event: 'sealed_bid',
+      endsAt: result.newEndsAt.toISOString(),
+      placedAt: new Date().toISOString(),
+    });
+  } else {
+    await publish(`auction:${auctionId}`, {
+      event: 'bid',
+      currentBid: result.newBidAmount,
+      currentBidUserId: bidder.id,
+      currentBidderDisplayName: bidder.displayName,
+      endsAt: result.newEndsAt.toISOString(),
+      placedAt: new Date().toISOString(),
+    });
+  }
 
   if (result.previousBidderId && result.previousBidderId !== bidder.id) {
     await publish(`user:${result.previousBidderId}`, {
