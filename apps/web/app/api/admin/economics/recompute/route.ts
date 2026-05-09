@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { recomputeAllTiers } from '@pullvault/db';
 import { withErrors } from '@/lib/api-handler';
-import { recomputeAllTiers } from '@/lib/economics/recompute';
 import { requireAuth } from '@/lib/require-auth';
 
 export const dynamic = 'force-dynamic';

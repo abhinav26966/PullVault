@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { cardPrices, cards, db } from '@pullvault/db';
+import { cardPrices, cards, db, getActiveSlots } from '@pullvault/db';
 import {
   FLOOR_WEIGHTS,
   TIER_CONFIG,
@@ -12,7 +12,6 @@ import {
   type Tier,
 } from '@pullvault/domain';
 import { withErrors } from '@/lib/api-handler';
-import { getActiveSlots } from '@/lib/economics/recompute';
 import { requireAuth } from '@/lib/require-auth';
 
 export const dynamic = 'force-dynamic';

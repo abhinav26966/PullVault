@@ -2,6 +2,14 @@ import type { InferInsertModel, InferSelectModel } from 'drizzle-orm';
 
 export { db, queryClient, type DB } from './client';
 export {
+  getActiveSlots,
+  getActiveSnapshot,
+  recomputeAllTiers,
+  type RecomputeOptions,
+  type RecomputeResult,
+  type TierRecomputeOutcome,
+} from './economics/recompute';
+export {
   ensurePlatformUser,
   ensureSampleDrops,
   runPipeline,

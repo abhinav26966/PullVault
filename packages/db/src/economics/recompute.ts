@@ -1,15 +1,6 @@
-import 'server-only';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import {
-  cardPrices,
-  cards,
-  db,
-  packEconomicsSnapshots,
-  type PackEconomicsSnapshot,
-} from '@pullvault/db';
-import {
   FLOOR_WEIGHTS,
-  RARITY_ORDER,
   TIER_CONFIG,
   simulate,
   solveWeights,
@@ -18,6 +9,11 @@ import {
   type SolverResult,
   type Tier,
 } from '@pullvault/domain';
+import type { InferSelectModel } from 'drizzle-orm';
+import { db } from '../client';
+import { cardPrices, cards, packEconomicsSnapshots } from '../schema';
+
+type PackEconomicsSnapshot = InferSelectModel<typeof packEconomicsSnapshots>;
 
 /**
  * Pack-economics recompute — Part B §9 / B5 dashboard surface.
@@ -40,6 +36,10 @@ import {
  * "at most one is_active=true per tier" at the DB level. Recompute runs
  * inside a transaction that flips the previous active row(s) for the tier
  * to is_active=false before inserting the new active row.
+ *
+ * Lives in @pullvault/db (not apps/web/lib) so apps/ws can call it from
+ * the price-refresh cron without crossing app boundaries. Same neighbourhood
+ * as the existing price-pipeline runner.
  */
 
 const TIERS: readonly Tier[] = ['BRONZE', 'SILVER', 'GOLD'] as const;
@@ -174,11 +174,6 @@ export async function recomputeAllTiers(
 
     const verdict = classify(lag, tilt);
 
-    // Run the simulator against whichever solver result we'd use as the
-    // active weights — the lagrangian output, which is what gets persisted
-    // into the weights JSON regardless of activation status. Even when the
-    // self-test fails we surface "what win rate this would have produced"
-    // so the dashboard's red banner has data behind it.
     const sim = simulate({
       slots: lag.slots,
       priceCents,
@@ -257,7 +252,7 @@ interface ActiveWeightsJson {
 
 /**
  * Read the active snapshot's slot weights for a tier, falling back to
- * TIER_CONFIG when no snapshot exists. Used by the drop-buy path.
+ * TIER_CONFIG when no snapshot exists.
  */
 export async function getActiveSlots(tier: Tier): Promise<readonly SlotWeights[]> {
   const snap = await getActiveSnapshot(tier);
@@ -266,12 +261,9 @@ export async function getActiveSlots(tier: Tier): Promise<readonly SlotWeights[]
   if (!parsed?.slots || !Array.isArray(parsed.slots)) {
     return buildAspirational(tier);
   }
-  // Defensive: clone so callers don't mutate the snapshot in place.
   return parsed.slots.map((s) => ({
     type: s.type,
     count: s.count,
     weights: { ...s.weights },
   }));
 }
-
-export { RARITY_ORDER };

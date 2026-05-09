@@ -20,6 +20,7 @@
     "db:seed": "tsx src/price-pipeline/run.ts"
   },
   "dependencies": {
+    "@pullvault/domain": "workspace:*",
     "@pullvault/shared": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "postgres": "^3.4.9"
