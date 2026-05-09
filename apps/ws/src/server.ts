@@ -7,6 +7,7 @@ import { registerSubscribeHandler } from './handlers/subscribe';
 import { runAuctionCloserNow, scheduleAuctionCloser } from './jobs/auction-closer';
 import { runDropActivatorNow, scheduleDropActivator } from './jobs/drop-activator';
 import { runDropReplenisherNow, scheduleDropReplenisher } from './jobs/drop-replenisher';
+import { scheduleLotteryResolver } from './jobs/lottery-resolver';
 import { schedulePriceRefresh } from './jobs/price-refresh';
 import { startPubSub } from './pubsub';
 
@@ -50,6 +51,9 @@ async function main(): Promise<void> {
   await runAuctionCloserNow();
   scheduleAuctionCloser();
   console.log('[ws] auction-closer scheduled (every 5s)');
+
+  scheduleLotteryResolver();
+  console.log('[ws] lottery-resolver scheduled (every 2s)');
 
   schedulePriceRefresh();
   const intervalHours = Math.max(
