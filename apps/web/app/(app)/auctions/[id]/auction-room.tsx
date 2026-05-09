@@ -15,7 +15,7 @@ interface BidRow {
 }
 
 interface InitialState {
-  state: 'OPEN' | 'CLOSED' | 'SETTLED';
+  state: 'OPEN' | 'SEALED' | 'CLOSED' | 'SETTLED';
   startingBid: number;
   currentBid: number | null;
   currentBidUserId: string | null;

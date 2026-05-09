@@ -70,6 +70,11 @@ export const listingStateEnum = pgEnum('pullvault_listing_state', [
 
 export const auctionStateEnum = pgEnum('pullvault_auction_state', [
   'OPEN',
+  // Part B §11 — sealed-bid window. Closer cron flips OPEN → SEALED at
+  // ends_at - 60s. Bids continue to be accepted but the auction:{id} WS
+  // broadcast redacts amount/bidder so late watchers can't snipe based on
+  // the current high. Settles via the existing OPEN→SETTLED path at ends_at.
+  'SEALED',
   'CLOSED',
   'SETTLED',
 ]);
@@ -316,12 +321,19 @@ export const auctions = pgTable(
     endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
     state: auctionStateEnum('state').notNull().default('OPEN'),
     settledAt: timestamp('settled_at', { withTimezone: true }),
+    // Part B §11 — incremented in the bid endpoint's atomic UPDATE every time
+    // anti-snipe fires (bid in last 30s extends ends_at). Surfaced by the
+    // /admin/auctions analytics page as the snipe-rate metric.
+    extensionCount: integer('extension_count').notNull().default(0),
   },
   (t) => ({
-    // Partial unique index: at most one OPEN auction per user_card.
+    // Partial unique index: at most one OPEN-or-SEALED auction per user_card
+    // (sealed is logically still an open auction — bids still arrive). Without
+    // sealed in the predicate, a SEALED auction would let a duplicate OPEN
+    // listing slip through.
     openUserCardUq: uniqueIndex('auctions_open_user_card_uq')
       .on(t.userCardId)
-      .where(sql`${t.state} = 'OPEN'`),
+      .where(sql`${t.state} IN ('OPEN', 'SEALED')`),
     stateEndsAtIdx: index('auctions_state_ends_at_idx').on(t.state, t.endsAt),
     sellerIdx: index('auctions_seller_idx').on(t.sellerId),
   }),
@@ -340,6 +352,10 @@ export const bids = pgTable(
       .references(() => users.id),
     amount: bigint('amount', { mode: 'number' }).notNull(),
     placedAt: timestamp('placed_at', { withTimezone: true }).notNull().defaultNow(),
+    // Part B §11 — true when the bid was placed during the SEALED window.
+    // Bid amounts are still stored normally; this flag is what the WS
+    // broadcast layer reads to redact the amount/bidder from public events.
+    isSealed: boolean('is_sealed').notNull().default(false),
   },
   (t) => ({
     // (auction_id, placed_at DESC) for "most recent first" bid history per
@@ -373,6 +389,37 @@ export const walletLedger = pgTable(
     typeCreatedIdx: index('wallet_ledger_type_created_idx').on(t.type, t.createdAt),
     auctionIdx: index('wallet_ledger_auction_idx').on(t.auctionId),
     listingIdx: index('wallet_ledger_listing_idx').on(t.listingId),
+  }),
+);
+
+// Part B §11 — auction_flags (wash-trade detection output)
+//
+// Wash-trade-detector cron runs every 5 min, scores recent settled auctions
+// against 9 weighted signals, and writes one row per flagged auction. Score
+// >= 55 triggers the flag. Detection only — auctions are NOT auto-cancelled;
+// admin reviews via /admin/auctions and either clears or confirms.
+export const auctionFlags = pgTable(
+  'auction_flags',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    auctionId: uuid('auction_id')
+      .notNull()
+      .references(() => auctions.id, { onDelete: 'cascade' }),
+    score: integer('score').notNull(),
+    reasons: jsonb('reasons').notNull(), // [{ code: string, weight: number }]
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+    reviewedBy: uuid('reviewed_by').references(() => users.id),
+    resolution: text('resolution'), // 'cleared' | 'confirmed' | null
+  },
+  (t) => ({
+    // "Show flags for this auction" lookup.
+    auctionIdx: index('auction_flags_auction_idx').on(t.auctionId),
+    // "Show all unreviewed flags" admin queue. Partial — index only the
+    // pending review tail, which is small in steady state.
+    unreviewedIdx: index('auction_flags_unreviewed_idx')
+      .on(t.createdAt.desc())
+      .where(sql`${t.reviewedAt} IS NULL`),
   }),
 );
 

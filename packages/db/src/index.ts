@@ -22,6 +22,7 @@ export * as schema from './schema';
 export {
   accountClusters,
   acquiredViaEnum,
+  auctionFlags,
   auctionStateEnum,
   auctions,
   bids,
@@ -49,6 +50,7 @@ export {
 
 import {
   accountClusters,
+  auctionFlags,
   auctions,
   bids,
   cardPrices,
@@ -110,3 +112,6 @@ export type NewAccountCluster = InferInsertModel<typeof accountClusters>;
 
 export type RateLimitAudit = InferSelectModel<typeof rateLimitAudit>;
 export type NewRateLimitAudit = InferInsertModel<typeof rateLimitAudit>;
+
+export type AuctionFlag = InferSelectModel<typeof auctionFlags>;
+export type NewAuctionFlag = InferInsertModel<typeof auctionFlags>;
