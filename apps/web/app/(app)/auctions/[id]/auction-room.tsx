@@ -8,10 +8,11 @@ import { useChannel } from '@/hooks/use-socket';
 
 interface BidRow {
   id: string;
-  amount: number;
+  amount: number | null; // null when redacted (sealed bid not owned by viewer)
   placedAt: string;
   bidderId: string;
   bidderDisplayName: string;
+  isSealed?: boolean;
 }
 
 interface InitialState {
@@ -24,6 +25,7 @@ interface InitialState {
   minNextBid: number;
   currentUserId: string;
   bids: BidRow[];
+  sealedBidCount?: number;
 }
 
 interface Props {
@@ -80,6 +82,18 @@ interface BidEvent {
   placedAt?: string;
 }
 
+interface SealedEvent {
+  event: 'sealed';
+  endsAt?: string;
+  sealedWindowMs?: number;
+}
+
+interface SealedBidEvent {
+  event: 'sealed_bid';
+  endsAt?: string;
+  placedAt?: string;
+}
+
 interface WatchersEvent {
   event: 'watchers';
   count?: number;
@@ -101,6 +115,9 @@ export default function AuctionRoom({
   );
   const [endsAt, setEndsAt] = useState(initialState.endsAt);
   const [bidList, setBidList] = useState<BidRow[]>(initialState.bids);
+  const [sealedBidCount, setSealedBidCount] = useState(
+    initialState.sealedBidCount ?? 0,
+  );
   const [watchers, setWatchers] = useState(0);
   const [closedBanner, setClosedBanner] = useState<{
     state: 'SETTLED' | 'CLOSED';
@@ -173,6 +190,15 @@ export default function AuctionRoom({
             prev.some((b) => b.id === newBid.id) ? prev : [newBid, ...prev].slice(0, 50),
           );
         }
+      } else if (ev === 'sealed') {
+        const e = payload as unknown as SealedEvent;
+        setState('SEALED');
+        if (typeof e.endsAt === 'string') setEndsAt(e.endsAt);
+      } else if (ev === 'sealed_bid') {
+        // Public watchers see only the count + the rolled-forward endsAt.
+        const e = payload as unknown as SealedBidEvent;
+        if (typeof e.endsAt === 'string') setEndsAt(e.endsAt);
+        setSealedBidCount((prev) => prev + 1);
       } else if (ev === 'watchers') {
         const e = payload as unknown as WatchersEvent;
         if (typeof e.count === 'number') setWatchers(e.count);
@@ -207,7 +233,10 @@ export default function AuctionRoom({
   const endsAtMs = new Date(endsAt).getTime();
   const secsLeft = Math.max(0, Math.ceil((endsAtMs - now) / 1000));
   const expired = secsLeft === 0;
-  const isLive = state === 'OPEN' && !expired;
+  // Bidding remains LIVE during the sealed window — the only thing the
+  // sealed state changes is broadcast redaction, not bid acceptance.
+  const isLive = (state === 'OPEN' || state === 'SEALED') && !expired;
+  const isSealed = state === 'SEALED';
 
   async function placeBid(): Promise<void> {
     setBidError(null);
@@ -279,14 +308,24 @@ export default function AuctionRoom({
       <div className="bg-white border border-zinc-200 rounded p-4 space-y-1">
         <p className="text-sm text-zinc-500">Current high bid</p>
         <p className="text-3xl font-mono">
-          {currentBid !== null
-            ? fmtUsd(currentBid)
-            : `${fmtUsd(initialState.startingBid)} (start)`}
+          {isSealed
+            ? `[SEALED — ${sealedBidCount} bid${sealedBidCount === 1 ? '' : 's'}]`
+            : currentBid !== null
+              ? fmtUsd(currentBid)
+              : `${fmtUsd(initialState.startingBid)} (start)`}
         </p>
-        {currentBidDisplayName ? (
+        {!isSealed && currentBidDisplayName ? (
           <p className="text-xs text-zinc-500">by {currentBidDisplayName}</p>
         ) : null}
       </div>
+
+      {isSealed ? (
+        <div className="rounded border border-purple-300 bg-purple-50 p-3 text-sm text-purple-900">
+          🔒 Sealed window — bids are accepted but amounts are hidden until
+          the auction settles. Anti-snipe still applies on bids in the last
+          30 seconds.
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-3 text-sm">
         <div className="bg-white border border-zinc-200 rounded p-3">
@@ -375,7 +414,7 @@ export default function AuctionRoom({
         </div>
       ) : null}
 
-      {isLive && isSeller && currentBid === null ? (
+      {isLive && isSeller && !isSealed && currentBid === null ? (
         <div className="space-y-2 bg-white border border-zinc-200 rounded p-4">
           <p className="text-sm text-zinc-500">
             You can cancel this auction while no bids have been placed.
@@ -399,10 +438,12 @@ export default function AuctionRoom({
         </div>
       ) : null}
 
-      {isLive && isSeller && currentBid !== null ? (
+      {isLive && isSeller && (currentBid !== null || isSealed) ? (
         <p className="text-sm text-zinc-500">
-          Auction has bids and cannot be cancelled. It will settle automatically when the
-          timer hits zero.
+          {isSealed
+            ? 'Auction has entered the sealed window and cannot be cancelled.'
+            : 'Auction has bids and cannot be cancelled.'}{' '}
+          It will settle automatically when the timer hits zero.
         </p>
       ) : null}
 
@@ -414,8 +455,10 @@ export default function AuctionRoom({
           <ul className="text-sm divide-y divide-zinc-100 border border-zinc-200 rounded bg-white">
             {bidList.map((b) => (
               <li key={b.id} className="flex justify-between px-3 py-2">
-                <span>{b.bidderDisplayName}</span>
-                <span className="font-mono">{fmtUsd(b.amount)}</span>
+                <span>{b.isSealed ? '[SEALED]' : b.bidderDisplayName}</span>
+                <span className="font-mono">
+                  {b.amount === null ? '[SEALED]' : fmtUsd(b.amount)}
+                </span>
                 <span className="text-xs text-zinc-500">
                   {new Date(b.placedAt).toLocaleTimeString()}
                 </span>

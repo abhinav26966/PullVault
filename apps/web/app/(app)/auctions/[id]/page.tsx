@@ -67,6 +67,7 @@ export default async function AuctionDetailPage({
       placedAt: bids.placedAt,
       bidderId: bids.bidderId,
       bidderDisplayName: bidder.displayName,
+      isSealed: bids.isSealed,
     })
     .from(bids)
     .innerJoin(bidder, eq(bidder.id, bids.bidderId))
@@ -78,6 +79,27 @@ export default async function AuctionDetailPage({
     a.currentBidUserId != null
       ? recentBids.find((b) => b.bidderId === a.currentBidUserId)?.bidderDisplayName ?? null
       : null;
+
+  // Part B §11 — server-side redaction during the sealed window.
+  // - currentBid amount + bidder are hidden from everyone (the public auction
+  //   high-bid is the thing late snipers would race to beat).
+  // - Each sealed bid's amount is masked unless the viewer placed it. The
+  //   bidder always sees their own bids so they know what they committed.
+  // - Settlement (state → SETTLED) lifts redaction; the bid history is
+  //   public from that point.
+  const isSealed = a.state === 'SEALED';
+  const sealedBidCount = recentBids.filter((b) => b.isSealed).length;
+  const initialCurrentBid = isSealed ? null : a.currentBidAmount;
+  const initialCurrentBidUserId = isSealed ? null : a.currentBidUserId;
+  const initialCurrentBidDisplayName = isSealed ? null : currentHighDisplayName;
+  const initialBids = recentBids.map((b) => ({
+    id: b.id,
+    amount: b.isSealed && b.bidderId !== user.id ? null : b.amount,
+    placedAt: b.placedAt.toISOString(),
+    bidderId: b.bidderId,
+    bidderDisplayName: b.bidderDisplayName,
+    isSealed: b.isSealed,
+  }));
 
   return (
     <div className="space-y-6">
@@ -112,19 +134,18 @@ export default async function AuctionDetailPage({
           initialState={{
             state: a.state,
             startingBid: a.startingBid,
-            currentBid: a.currentBidAmount,
-            currentBidUserId: a.currentBidUserId,
-            currentBidDisplayName: currentHighDisplayName,
+            currentBid: initialCurrentBid,
+            currentBidUserId: initialCurrentBidUserId,
+            currentBidDisplayName: initialCurrentBidDisplayName,
             endsAt: a.endsAt.toISOString(),
+            // minNextBid uses the unredacted current bid even during sealed —
+            // the bid endpoint validates against the real amount, so the
+            // bidder needs to know what to clear. (The public room displays
+            // the suggested-min as a hint without revealing the actual high.)
             minNextBid: computeMinValidBid(a.currentBidAmount, a.startingBid),
             currentUserId: user.id,
-            bids: recentBids.map((b) => ({
-              id: b.id,
-              amount: b.amount,
-              placedAt: b.placedAt.toISOString(),
-              bidderId: b.bidderId,
-              bidderDisplayName: b.bidderDisplayName,
-            })),
+            sealedBidCount,
+            bids: initialBids,
           }}
         />
       </div>
