@@ -16,6 +16,7 @@ import {
   type SlotWeights,
   type Tier,
 } from '@pullvault/domain';
+import { z } from 'zod';
 import { withErrors } from '@/lib/api-handler';
 import { loadCardPool } from '@/lib/card-pool';
 import {
@@ -23,9 +24,24 @@ import {
   InsufficientFundsError,
   SoldOutError,
 } from '@/lib/errors';
+import {
+  enqueueIntent,
+  pushInteractionSignature,
+} from '@/lib/lottery/intent-store';
 import { withRateLimit } from '@/lib/rate-limit/middleware';
 import { publish } from '@/lib/redis-publish';
 import { requireAuth } from '@/lib/require-auth';
+
+const LOTTERY_WINDOW_MS = Number(process.env.LOTTERY_WINDOW_MS ?? 5_000);
+
+const InteractionSig = z.object({
+  mouseEvents: z.number().int().min(0).max(10_000),
+  keyEvents: z.number().int().min(0).max(10_000),
+});
+
+const BuyBody = z.object({
+  interaction_signature: InteractionSig.optional(),
+});
 
 interface ActiveSnapshotJson {
   readonly slots: readonly SlotWeights[];
@@ -66,9 +82,53 @@ export const POST = withErrors<{ id: string }>(
       user: { limit: 5, windowMs: 60_000 },
       ip: { limit: 20, windowMs: 60_000 },
     },
-    async (_req, ctx) => {
+    async (req, ctx) => {
   const user = await requireAuth();
   const dropId = ctx.params.id;
+
+  // Parse body opportunistically — old clients may send empty body. The
+  // interaction_signature is optional and best-effort recorded for the
+  // bot-scoring cron's signal #6 (mouse/key event presence).
+  let body: z.infer<typeof BuyBody> = {};
+  try {
+    const raw = await req.json();
+    body = BuyBody.parse(raw);
+  } catch {
+    body = {};
+  }
+  if (body.interaction_signature) {
+    pushInteractionSignature(user.id, body.interaction_signature).catch((err) =>
+      console.error('[drop-buy] interaction-signature push failed', err),
+    );
+  }
+
+  // Lottery fairness branch — Part B §10.
+  // While the drop is OPEN and we're inside the fairness window, divert the
+  // intent into a Redis sorted set with a random score. The lottery-resolver
+  // cron drains the set in score order and runs the existing atomic UPDATE
+  // path per winner, so race protection from §6.1 is unchanged.
+  const [meta] = await db
+    .select({ startsAt: packDrops.startsAt, state: packDrops.state })
+    .from(packDrops)
+    .where(eq(packDrops.id, dropId))
+    .limit(1);
+  if (!meta) throw new DropNotOpenError();
+
+  const windowEnd = meta.startsAt.getTime() + LOTTERY_WINDOW_MS;
+  if (meta.state === 'OPEN' && Date.now() < windowEnd) {
+    const enq = await enqueueIntent(dropId, user.id, LOTTERY_WINDOW_MS);
+    return NextResponse.json(
+      {
+        status: 'queued',
+        position: enq.position,
+        resolveAfterMs: Math.max(0, windowEnd - Date.now()) + 2_000,
+      },
+      { status: 202 },
+    );
+  }
+
+  // Past the fairness window — fall through to direct atomic path (Part A
+  // behaviour preserved verbatim).
 
   // Pre-load card pool outside the transaction so rollPack has it ready.
   // First call queries; subsequent calls hit the in-memory cache.
