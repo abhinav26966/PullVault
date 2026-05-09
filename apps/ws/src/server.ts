@@ -11,6 +11,7 @@ import { runDropActivatorNow, scheduleDropActivator } from './jobs/drop-activato
 import { runDropReplenisherNow, scheduleDropReplenisher } from './jobs/drop-replenisher';
 import { scheduleLotteryResolver } from './jobs/lottery-resolver';
 import { schedulePriceRefresh } from './jobs/price-refresh';
+import { scheduleWashTradeDetector } from './jobs/wash-trade-detector';
 import { startPubSub } from './pubsub';
 
 const PORT = Number(process.env.PORT ?? 4000);
@@ -62,6 +63,9 @@ async function main(): Promise<void> {
 
   scheduleAccountCluster();
   console.log('[ws] account-cluster scheduled (daily 03:00 UTC)');
+
+  scheduleWashTradeDetector();
+  console.log('[ws] wash-trade-detector scheduled (every 5min)');
 
   schedulePriceRefresh();
   const intervalHours = Math.max(
