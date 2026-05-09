@@ -23,6 +23,7 @@ import {
   InsufficientFundsError,
   SoldOutError,
 } from '@/lib/errors';
+import { withRateLimit } from '@/lib/rate-limit/middleware';
 import { publish } from '@/lib/redis-publish';
 import { requireAuth } from '@/lib/require-auth';
 
@@ -58,7 +59,14 @@ export const dynamic = 'force-dynamic';
  * D.1 (canonical race for last pack) and D.2 (same-user rapid-fire with
  * insufficient funds) are gated by the rowcount checks in steps 1 and 2.
  */
-export const POST = withErrors<{ id: string }>(async (_req, ctx) => {
+export const POST = withErrors<{ id: string }>(
+  withRateLimit<{ id: string }>(
+    {
+      endpoint: 'buy_drop',
+      user: { limit: 5, windowMs: 60_000 },
+      ip: { limit: 20, windowMs: 60_000 },
+    },
+    async (_req, ctx) => {
   const user = await requireAuth();
   const dropId = ctx.params.id;
 
@@ -217,4 +225,6 @@ export const POST = withErrors<{ id: string }>(async (_req, ctx) => {
   });
 
   return NextResponse.json({ packId: result.packId }, { status: 201 });
-});
+    },
+  ),
+);

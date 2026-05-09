@@ -15,6 +15,7 @@ import {
   ListingUnavailableError,
   SellerCannotBuyOwnError,
 } from '@/lib/errors';
+import { withRateLimit } from '@/lib/rate-limit/middleware';
 import { publish } from '@/lib/redis-publish';
 import { requireAuth } from '@/lib/require-auth';
 
@@ -53,7 +54,14 @@ export const dynamic = 'force-dynamic';
  * D.8 (held funds untouchable): step 3's `gte(balance_available, price)`
  * ignores balance_held entirely. A user with held > available cannot debit.
  */
-export const POST = withErrors<{ id: string }>(async (_req, ctx) => {
+export const POST = withErrors<{ id: string }>(
+  withRateLimit<{ id: string }>(
+    {
+      endpoint: 'buy_listing',
+      user: { limit: 10, windowMs: 60_000 },
+      ip: { limit: 30, windowMs: 60_000 },
+    },
+    async (_req, ctx) => {
   const buyer = await requireAuth();
   const listingId = ctx.params.id;
 
@@ -170,4 +178,6 @@ export const POST = withErrors<{ id: string }>(async (_req, ctx) => {
   });
 
   return NextResponse.json({ listingId, userCardId: result.userCardId });
-});
+    },
+  ),
+);

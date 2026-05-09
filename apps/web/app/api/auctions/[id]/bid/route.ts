@@ -21,6 +21,7 @@ import {
   InsufficientFundsError,
   SellerCannotBidError,
 } from '@/lib/errors';
+import { withRateLimit } from '@/lib/rate-limit/middleware';
 import { publish } from '@/lib/redis-publish';
 import { requireAuth } from '@/lib/require-auth';
 
@@ -56,7 +57,14 @@ const bodySchema = z.object({
  * D.8 (held untouchable): step 4's `gte(balance_available, bid)` ignores
  * balance_held entirely.
  */
-export const POST = withErrors<{ id: string }>(async (req, ctx) => {
+export const POST = withErrors<{ id: string }>(
+  withRateLimit<{ id: string }>(
+    {
+      endpoint: 'bid_auction',
+      // 5 bids / 30s per user — also enforces B3's rapid-fire detection.
+      user: { limit: 5, windowMs: 30_000 },
+    },
+    async (req, ctx) => {
   const bidder = await requireAuth();
   const auctionId = ctx.params.id;
   const body = bodySchema.parse(await req.json());
@@ -188,4 +196,6 @@ export const POST = withErrors<{ id: string }>(async (req, ctx) => {
     currentBidCents: result.newBidAmount,
     endsAt: result.newEndsAt.toISOString(),
   });
-});
+    },
+  ),
+);

@@ -4,6 +4,7 @@ import { db, users, wallets, walletLedger } from '@pullvault/db';
 import { withErrors } from '@/lib/api-handler';
 import { hashPassword, signSessionToken, setSessionCookie } from '@/lib/auth';
 import { EmailTakenError, DisplayNameTakenError } from '@/lib/errors';
+import { withRateLimit } from '@/lib/rate-limit/middleware';
 
 const SIGNUP_BONUS_CENTS = 100_000; // $1,000.00
 
@@ -13,7 +14,15 @@ const Body = z.object({
   displayName: z.string().trim().min(2).max(40),
 });
 
-export const POST = withErrors(async (req) => {
+export const POST = withErrors(
+  withRateLimit(
+    {
+      endpoint: 'signup',
+      // Anonymous endpoint — only the IP budget applies. 3 signups per IP per
+      // hour throttles signup-cluster bots without affecting one-off humans.
+      ip: { limit: 3, windowMs: 3_600_000 },
+    },
+    async (req) => {
   const body = Body.parse(await req.json());
   const passwordHash = await hashPassword(body.password);
 
@@ -64,4 +73,6 @@ export const POST = withErrors(async (req) => {
     { id: userId, email: body.email, displayName: body.displayName },
     { status: 201 },
   );
-});
+    },
+  ),
+);
