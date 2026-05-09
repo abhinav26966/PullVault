@@ -249,6 +249,18 @@ export default function AuctionRoom({
       setBidError(`Bid must be at least ${fmtUsd(minNext)}.`);
       return;
     }
+    // Part B §11 — fat-finger soft warning. Confirm with the user when the
+    // bid is more than 3x the card's current market price. The hard cap
+    // (100x market) is server-side; this is the gentler client guard.
+    // window.confirm is intentional minimal UI — a custom modal is polish.
+    const market = card.currentMarketPrice;
+    if (market > 0 && cents > 3 * market) {
+      const ratio = (cents / market).toFixed(1);
+      const ok = window.confirm(
+        `Heads up — your bid (${fmtUsd(cents)}) is ${ratio}× this card's market value of ${fmtUsd(market)}. Continue?`,
+      );
+      if (!ok) return;
+    }
     setBidBusy(true);
     try {
       const res = await fetch(`/api/auctions/${auctionId}/bid`, {
