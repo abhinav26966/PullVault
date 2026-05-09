@@ -79,6 +79,34 @@ function expectedProportion(tier: Tier, rarity: Rarity): number {
   return weight / cfg.cardCount;
 }
 
+describe('rollPack — slots override (Part B §9 snapshot path)', () => {
+  it('honours an explicit slots argument over TIER_CONFIG defaults', () => {
+    // Force every slot to roll commons by passing an all-C weight vector.
+    const allCommons = [
+      {
+        type: 'FILLER' as const,
+        count: 5,
+        weights: { C: 1, U: 0, R: 0, E: 0, L: 0 },
+      },
+    ];
+    const cards = rollPack('BRONZE', makePool(), mulberry32(42), allCommons);
+    expect(cards).toHaveLength(5);
+    for (const c of cards) expect(c.rarity).toBe('C');
+  });
+
+  it('passing the same TIER_CONFIG slots explicitly produces an identical roll', () => {
+    const seed = 99;
+    const baseline = rollPack('BRONZE', makePool(), mulberry32(seed));
+    const explicit = rollPack(
+      'BRONZE',
+      makePool(),
+      mulberry32(seed),
+      TIER_CONFIG.BRONZE.slots,
+    );
+    expect(explicit).toEqual(baseline);
+  });
+});
+
 describe('rollPack — empirical distribution (10k rolls)', () => {
   it.each<[Tier]>([['BRONZE'], ['SILVER'], ['GOLD']])(
     '%s distribution within 2pp of configured weights',

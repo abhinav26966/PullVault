@@ -1,3 +1,4 @@
+import type { SlotWeights } from './economics/types';
 import {
   RARITY_ORDER,
   TIER_CONFIG,
@@ -62,21 +63,26 @@ function pickFromPool<T>(pool: readonly T[], rng: Rng): T {
  * The roller is robust to a sparse card pool: if the rolled rarity bucket is
  * empty, it walks down to the next non-empty bucket. This matters for the
  * trial-scale seed where the L bucket has only ~6 cards.
+ *
+ * Part B §9: `slots` is the per-pack snapshot of rarity weights actually
+ * used to roll this pack. Pass the value from `packs.rarity_weights` when
+ * re-rolling a historical pack or when minting a new pack with the active
+ * solver snapshot. Defaults to `TIER_CONFIG[tier].slots` (the advertised
+ * aspirational weights) for backwards compatibility with Part A callers.
  */
 export function rollPack(
   tier: Tier,
   cardPool: ReadonlyArray<PoolCard>,
   rng: Rng = Math.random,
+  slots: readonly SlotWeights[] = TIER_CONFIG[tier].slots,
 ): RolledCard[] {
-  const config = TIER_CONFIG[tier];
-
   const byRarity = new Map<Rarity, PoolCard[]>();
   for (const r of RARITY_ORDER) byRarity.set(r, []);
   for (const card of cardPool) byRarity.get(card.rarity)!.push(card);
 
   const rolled: RolledCard[] = [];
 
-  for (const slot of config.slots) {
+  for (const slot of slots) {
     for (let i = 0; i < slot.count; i++) {
       const wantedRarity = pickRarity(slot.weights, rng);
       let pool = byRarity.get(wantedRarity)!;
