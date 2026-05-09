@@ -44,3 +44,14 @@ export {
   type Tier,
   type TierConfig,
 } from './tier-config';
+
+export {
+  FLOOR_WEIGHTS,
+  solveWeights,
+  type SlotWeights,
+  type SolvedSlot,
+  type SolverInput,
+  type SolverMode,
+  type SolverResult,
+  type SolverStatus,
+} from './economics';
