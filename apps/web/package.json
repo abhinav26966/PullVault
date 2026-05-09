@@ -9,6 +9,8 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "seed-test-drop": "tsx scripts/seed-test-drop.ts",
+    "seed-economics": "tsx scripts/seed-economics-snapshots.ts",
+    "backfill-pack-weights": "tsx scripts/backfill-pack-rarity-weights.ts",
     "reset-ledger": "tsx scripts/reset-ledger-balance.ts",
     "verify-ledger": "tsx scripts/verify-ledger.ts",
     "verify-activity": "tsx scripts/verify-activity.ts"
