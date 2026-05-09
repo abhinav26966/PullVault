@@ -79,13 +79,34 @@ export const auctionStateEnum = pgEnum('pullvault_auction_state', [
 // readable migration. Foreign key targets are declared before their referrers.
 
 // §5.1 — users
-export const users = pgTable('users', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  email: text('email').notNull().unique(),
-  passwordHash: text('password_hash').notNull(),
-  displayName: text('display_name').notNull().unique(),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const users = pgTable(
+  'users',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    email: text('email').notNull().unique(),
+    passwordHash: text('password_hash').notNull(),
+    displayName: text('display_name').notNull().unique(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    // Part B §10 — anti-bot signals captured at signup, scored async by cron.
+    // Nullable for backfill; populated only on new signups going forward.
+    signupIp: text('signup_ip'),
+    signupUaHash: text('signup_ua_hash'),
+    signupTzOffset: integer('signup_tz_offset'), // minutes from UTC, x-vercel-ip-timezone
+    botScore: integer('bot_score').notNull().default(0),
+    flagMultiAccount: boolean('flag_multi_account').notNull().default(false),
+  },
+  (t) => ({
+    // "Find all users from this IP" — signup-cluster heuristic. Partial so
+    // the index stays small (only populated for post-Part-B signups).
+    signupIpIdx: index('users_signup_ip_idx')
+      .on(t.signupIp)
+      .where(sql`${t.signupIp} IS NOT NULL`),
+    // Partial: only suspicious users land in the index. Tiny in steady state.
+    botScoreIdx: index('users_bot_score_idx')
+      .on(t.botScore.desc())
+      .where(sql`${t.botScore} > 50`),
+  }),
+);
 
 // §5.1 — wallets (one-to-one with users)
 export const wallets = pgTable(
@@ -155,6 +176,10 @@ export const packDrops = pgTable(
     startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
     state: dropStateEnum('state').notNull().default('SCHEDULED'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    // Part B §10 — set true by lottery-resolver cron once it has drained the
+    // fairness-window queue and notified winners/losers. Cron's idempotency
+    // gate: the WHERE clause selects only rows with this still false.
+    lotteryResolved: boolean('lottery_resolved').notNull().default(false),
   },
   (t) => ({
     inventoryNonNeg: check(
@@ -162,6 +187,10 @@ export const packDrops = pgTable(
       sql`${t.inventoryRemaining} >= 0`,
     ),
     stateStartsAtIdx: index('pack_drops_state_starts_at_idx').on(t.state, t.startsAt),
+    // Partial — exactly the lottery-resolver cron's WHERE clause.
+    lotteryPendingIdx: index('pack_drops_lottery_pending_idx')
+      .on(t.startsAt)
+      .where(sql`${t.state} = 'OPEN' AND ${t.lotteryResolved} = false`),
   }),
 );
 
@@ -344,6 +373,50 @@ export const walletLedger = pgTable(
     typeCreatedIdx: index('wallet_ledger_type_created_idx').on(t.type, t.createdAt),
     auctionIdx: index('wallet_ledger_auction_idx').on(t.auctionId),
     listingIdx: index('wallet_ledger_listing_idx').on(t.listingId),
+  }),
+);
+
+// Part B §10 — account_clusters (anti-bot heuristic output)
+//
+// Daily cron groups users with shared signup_ip + signup-time clustering and
+// writes one row per cluster. Surfaced in the B5 fraud tab. Detection only —
+// no auto-blocking; flagged for human review.
+export const accountClusters = pgTable(
+  'account_clusters',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    reason: text('reason').notNull(), // e.g. 'shared-ip + 5min-signup-window'
+    userIds: uuid('user_ids').array().notNull(),
+    signalData: jsonb('signal_data'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    // "Show recent clusters" — admin queue read path.
+    createdIdx: index('account_clusters_created_idx').on(t.createdAt.desc()),
+  }),
+);
+
+// Part B §10 — rate_limit_audit (forensic trail of blocked requests)
+//
+// Append-only log written by the rate-limit middleware whenever a request hits
+// a 429. bigserial id + indexed (endpoint, blocked_at) so the dashboard can
+// efficiently page through "recent blocks per endpoint" without scanning.
+export const rateLimitAudit = pgTable(
+  'rate_limit_audit',
+  {
+    id: bigint('id', { mode: 'bigint' })
+      .primaryKey()
+      .generatedAlwaysAsIdentity(),
+    scope: text('scope').notNull(), // 'user' | 'ip'
+    scopeId: text('scope_id').notNull(),
+    endpoint: text('endpoint').notNull(),
+    blockedAt: timestamp('blocked_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    endpointAtIdx: index('rate_limit_audit_endpoint_at_idx').on(
+      t.endpoint,
+      t.blockedAt.desc(),
+    ),
   }),
 );
 

@@ -20,6 +20,7 @@ export * as schema from './schema';
 // Re-export tables and enums directly so callers can `import { users } from
 // '@pullvault/db'` without going through the schema namespace.
 export {
+  accountClusters,
   acquiredViaEnum,
   auctionStateEnum,
   auctions,
@@ -36,6 +37,7 @@ export {
   packs,
   PLATFORM_USER_ID,
   rarityEnum,
+  rateLimitAudit,
   slotTypeEnum,
   tierEnum,
   userCardStateEnum,
@@ -46,6 +48,7 @@ export {
 } from './schema';
 
 import {
+  accountClusters,
   auctions,
   bids,
   cardPrices,
@@ -55,6 +58,7 @@ import {
   packDrops,
   packEconomicsSnapshots,
   packs,
+  rateLimitAudit,
   userCards,
   walletLedger,
   wallets,
@@ -100,3 +104,9 @@ export type NewBid = InferInsertModel<typeof bids>;
 
 export type PackEconomicsSnapshot = InferSelectModel<typeof packEconomicsSnapshots>;
 export type NewPackEconomicsSnapshot = InferInsertModel<typeof packEconomicsSnapshots>;
+
+export type AccountCluster = InferSelectModel<typeof accountClusters>;
+export type NewAccountCluster = InferInsertModel<typeof accountClusters>;
+
+export type RateLimitAudit = InferSelectModel<typeof rateLimitAudit>;
+export type NewRateLimitAudit = InferInsertModel<typeof rateLimitAudit>;
