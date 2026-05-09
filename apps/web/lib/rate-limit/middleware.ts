@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db, rateLimitAudit } from '@pullvault/db';
 import { getSessionUser } from '@/lib/auth';
+import { getClientIp } from '@/lib/request-headers';
 import { check, type Scope } from './index';
 
 /**
@@ -35,15 +36,6 @@ export interface RateLimitConfig {
   readonly endpoint: string;
   readonly user?: RateLimitBudget;
   readonly ip?: RateLimitBudget;
-}
-
-function getClientIp(req: Request): string | null {
-  const xff = req.headers.get('x-forwarded-for');
-  if (xff) {
-    const first = xff.split(',')[0]?.trim();
-    if (first) return first;
-  }
-  return req.headers.get('x-real-ip');
 }
 
 function build429(retryAfterMs: number): Response {
