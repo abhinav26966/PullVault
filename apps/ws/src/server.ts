@@ -4,7 +4,9 @@ import { Server as IoServer } from 'socket.io';
 import { authenticate } from './auth';
 import { registerDisconnectHandler } from './handlers/disconnect';
 import { registerSubscribeHandler } from './handlers/subscribe';
+import { scheduleAccountCluster } from './jobs/account-cluster';
 import { runAuctionCloserNow, scheduleAuctionCloser } from './jobs/auction-closer';
+import { scheduleBotScoring } from './jobs/bot-scoring';
 import { runDropActivatorNow, scheduleDropActivator } from './jobs/drop-activator';
 import { runDropReplenisherNow, scheduleDropReplenisher } from './jobs/drop-replenisher';
 import { scheduleLotteryResolver } from './jobs/lottery-resolver';
@@ -54,6 +56,12 @@ async function main(): Promise<void> {
 
   scheduleLotteryResolver();
   console.log('[ws] lottery-resolver scheduled (every 2s)');
+
+  scheduleBotScoring();
+  console.log('[ws] bot-scoring scheduled (every 5min)');
+
+  scheduleAccountCluster();
+  console.log('[ws] account-cluster scheduled (daily 03:00 UTC)');
 
   schedulePriceRefresh();
   const intervalHours = Math.max(
