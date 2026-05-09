@@ -5,11 +5,17 @@ import {
   db,
   packCards,
   packDrops,
+  packEconomicsSnapshots,
   packs,
   walletLedger,
   wallets,
 } from '@pullvault/db';
-import { rollPack } from '@pullvault/domain';
+import {
+  TIER_CONFIG,
+  rollPack,
+  type SlotWeights,
+  type Tier,
+} from '@pullvault/domain';
 import { withErrors } from '@/lib/api-handler';
 import { loadCardPool } from '@/lib/card-pool';
 import {
@@ -20,21 +26,34 @@ import {
 import { publish } from '@/lib/redis-publish';
 import { requireAuth } from '@/lib/require-auth';
 
+interface ActiveSnapshotJson {
+  readonly slots: readonly SlotWeights[];
+}
+
+function defaultSlotsFor(tier: Tier): SlotWeights[] {
+  return TIER_CONFIG[tier].slots.map((s) => ({
+    type: s.type,
+    count: s.count,
+    weights: { ...s.weights },
+  }));
+}
+
 export const dynamic = 'force-dynamic';
 
 /**
  * Atomic pack purchase — implements ARCHITECTURE §6.1 verbatim.
  *
  * Order of operations (matters):
- *   1. Atomic conditional UPDATE on inventory (decrement, check rowcount).
- *   2. Atomic conditional UPDATE on wallet (debit, check rowcount).
- *   3. Roll cards via @pullvault/domain rollPack.
- *   4. Snapshot pack EV (sum of rolled cards' current prices).
- *   5. Insert packs row.
- *   6. Insert pack_cards rows (positions 0..N, sorted commons-first by roller).
- *   7. Insert wallet_ledger PACK_PURCHASE row.
- *   8. If inventory hit 0, mark drop SOLD_OUT.
- *   9. After commit: publish drop:{id} delta to Redis (stub for Phase 5).
+ *   1.  Atomic conditional UPDATE on inventory (decrement, check rowcount).
+ *   1b. Read active rarity-weights snapshot for the tier (Part B §9).
+ *   2.  Atomic conditional UPDATE on wallet (debit, check rowcount).
+ *   3.  Roll cards via @pullvault/domain rollPack with the snapshot slots.
+ *   4.  Snapshot pack EV (sum of rolled cards' current prices).
+ *   5.  Insert packs row, including rarity_weights snapshot.
+ *   6.  Insert pack_cards rows (positions 0..N, sorted commons-first by roller).
+ *   7.  Insert wallet_ledger PACK_PURCHASE row.
+ *   8.  If inventory hit 0, mark drop SOLD_OUT.
+ *   9.  After commit: publish drop:{id} delta to Redis (stub for Phase 5).
  *
  * D.1 (canonical race for last pack) and D.2 (same-user rapid-fire with
  * insufficient funds) are gated by the rowcount checks in steps 1 and 2.
@@ -85,6 +104,33 @@ export const POST = withErrors<{ id: string }>(async (_req, ctx) => {
 
     const drop = decremented[0]!;
 
+    // ── 1b. Snapshot active rarity weights for this tier (Part B §9). ──
+    // Read inside the tx so the snapshot used for rolling is the same row
+    // we'll persist onto packs.rarity_weights. Existing in-flight packs
+    // remain immune to a recompute that lands between this buy's atomic
+    // UPDATE and the pack insert — the per-pack snapshot is the source
+    // of truth at rip time.
+    const [activeSnap] = await tx
+      .select({ weights: packEconomicsSnapshots.weights })
+      .from(packEconomicsSnapshots)
+      .where(
+        and(
+          eq(packEconomicsSnapshots.tier, drop.tier),
+          eq(packEconomicsSnapshots.isActive, true),
+        ),
+      )
+      .limit(1);
+
+    const snapshotJson = (activeSnap?.weights ?? null) as ActiveSnapshotJson | null;
+    const slots: readonly SlotWeights[] =
+      snapshotJson?.slots && Array.isArray(snapshotJson.slots) && snapshotJson.slots.length > 0
+        ? snapshotJson.slots.map((s) => ({
+            type: s.type,
+            count: s.count,
+            weights: { ...s.weights },
+          }))
+        : defaultSlotsFor(drop.tier);
+
     // ── 2. Atomically debit the wallet. ──
     const debited = await tx
       .update(wallets)
@@ -102,8 +148,8 @@ export const POST = withErrors<{ id: string }>(async (_req, ctx) => {
 
     if (debited.length === 0) throw new InsufficientFundsError();
 
-    // ── 3. Roll cards (pure function, no I/O). ──
-    const rolled = rollPack(drop.tier, cardPool);
+    // ── 3. Roll cards (pure function, no I/O). Use the per-pack snapshot. ──
+    const rolled = rollPack(drop.tier, cardPool, undefined, slots);
 
     // ── 4. Snapshot pack EV: sum of rolled cards' current prices. ──
     // This is what powers the realized-margin metric in the economics
@@ -120,7 +166,7 @@ export const POST = withErrors<{ id: string }>(async (_req, ctx) => {
       0,
     );
 
-    // ── 5. Insert packs row. ──
+    // ── 5. Insert packs row, including the rarity-weights snapshot. ──
     const [pack] = await tx
       .insert(packs)
       .values({
@@ -129,6 +175,7 @@ export const POST = withErrors<{ id: string }>(async (_req, ctx) => {
         tier: drop.tier,
         pricePaid: drop.priceCents,
         packEvAtPurchase,
+        rarityWeights: { slots },
       })
       .returning({ id: packs.id });
     if (!pack) throw new Error('pack insert returned no row');
