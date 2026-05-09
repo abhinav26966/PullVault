@@ -206,10 +206,11 @@ export const packs = pgTable(
     openedAt: timestamp('opened_at', { withTimezone: true }),
     packEvAtPurchase: bigint('pack_ev_at_purchase', { mode: 'number' }).notNull(),
     // Part B §9 — snapshot of the rarity weights this pack was rolled with.
-    // Nullable for backfill compatibility; new packs always set it; pack-roller
-    // falls back to TIER_CONFIG when null. Once backfill runs, this becomes
-    // the source of truth for "what weights produced this pack."
-    rarityWeights: jsonb('rarity_weights'),
+    // NOT NULL: apps/web/scripts/backfill-pack-rarity-weights.ts backfilled all
+    // pre-Part-B packs before this constraint was applied (migration 0002).
+    // Source of truth for "what weights produced this pack" — pack-roller reads
+    // this at rip time, immune to any later recompute on pack_economics_snapshots.
+    rarityWeights: jsonb('rarity_weights').notNull(),
   },
   (t) => ({
     ownerIdx: index('packs_owner_idx').on(t.ownerId),

@@ -15,6 +15,13 @@
       "when": 1778328167443,
       "tag": "0001_fair_lake",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1778330676507,
+      "tag": "0002_red_freak",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,1 @@
+ALTER TABLE "packs" ALTER COLUMN "rarity_weights" SET NOT NULL;
