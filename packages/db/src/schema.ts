@@ -245,6 +245,15 @@ export const packs = pgTable(
     // Source of truth for "what weights produced this pack" — pack-roller reads
     // this at rip time, immune to any later recompute on pack_economics_snapshots.
     rarityWeights: jsonb('rarity_weights').notNull(),
+    // Part B §12 — provably-fair fields, captured atomically at purchase.
+    // Pre-Part-B packs carry NULLs and the verify page renders "pre-PF: not
+    // verifiable" for them. From this migration forward every fresh pack has
+    // commit + server_seed + client_seed + eligible_card_ids snapshots so the
+    // browser can recompute every slot's HMAC and confirm tamper-freedom.
+    serverSeedCommit: text('server_seed_commit'),
+    serverSeed: text('server_seed'),
+    clientSeed: text('client_seed'),
+    eligibleCardIds: text('eligible_card_ids').array(),
   },
   (t) => ({
     ownerIdx: index('packs_owner_idx').on(t.ownerId),
@@ -499,6 +508,68 @@ export const packEconomicsSnapshots = pgTable(
     tierCreatedIdx: index('pack_economics_snapshots_tier_created_idx').on(
       t.tier,
       t.createdAt.desc(),
+    ),
+  }),
+);
+
+// Part B §12 — seed_pool (pre-committed server seeds for provably-fair).
+//
+// The WS process generates entries on boot and once an hour; the buy path
+// consumes one inside the existing transaction with `SELECT ... FOR UPDATE
+// SKIP LOCKED LIMIT 1`. Public audit endpoint `/api/audit/commits` exposes the
+// `unused = true` subset so a user buying a pack can prove the commit they
+// were assigned was already published *before* the purchase — server cannot
+// have crafted a seed for their specific cards.
+//
+// `commit` is hex(SHA256(server_seed)) and is what the client compares its
+// browser-side digest against on /verify/[packId].
+export const seedPool = pgTable(
+  'seed_pool',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    commit: text('commit').notNull().unique(),
+    serverSeed: text('server_seed').notNull(),
+    used: boolean('used').notNull().default(false),
+    usedForPackId: uuid('used_for_pack_id').references(() => packs.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+  },
+  (t) => ({
+    // Partial index — exactly the consume path's WHERE clause. Stays small
+    // because the steady-state pool is ≥ 100 unused entries.
+    unusedIdx: index('seed_pool_unused_idx')
+      .on(t.createdAt)
+      .where(sql`${t.used} = false`),
+    // Verify-page lookup: "find the commit row for this pack". Partial on
+    // non-null because pre-PF packs have no entry here.
+    usedPackIdx: index('seed_pool_used_pack_idx')
+      .on(t.usedForPackId)
+      .where(sql`${t.usedForPackId} IS NOT NULL`),
+  }),
+);
+
+// Part B §12 — pack_audit_aggregates (rolling rarity-distribution snapshot).
+//
+// 10-min cron writes one row per (tier, rarity) with observed counts and
+// expected-weight averages. The B5 fairness tab reads `latest per tier` and
+// runs chi-squared + K-S against expected. Boot-time backfill seeds the table
+// from existing pack_cards so the dashboard has real data day-one rather than
+// having to wait 10 minutes after deploy.
+export const packAuditAggregates = pgTable(
+  'pack_audit_aggregates',
+  {
+    id: bigint('id', { mode: 'bigint' }).primaryKey().generatedAlwaysAsIdentity(),
+    tier: tierEnum('tier').notNull(),
+    rarity: rarityEnum('rarity').notNull(),
+    observedCount: bigint('observed_count', { mode: 'number' }).notNull(),
+    expectedWeight: numeric('expected_weight', { precision: 10, scale: 6 }).notNull(),
+    computedAt: timestamp('computed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    // "Latest aggregates per tier" — the fairness tab's read pattern.
+    tierAtIdx: index('pack_audit_aggregates_tier_at_idx').on(
+      t.tier,
+      t.computedAt.desc(),
     ),
   }),
 );
