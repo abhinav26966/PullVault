@@ -161,11 +161,17 @@ async function mintForUser(dropId: string, userId: string, cardPool: PoolCard[])
       throw new InsufficientFundsRollback();
     }
 
-    // 2b. Provably-fair seed claim — same shape as /api/drops/[id]/buy.
+    // 2b. Provably-fair seed claim — same two-step shape as the web buy
+    // route: claim a row, insert the pack, then backfill the FK so postgres'
+    // end-of-statement validation is happy.
     const packId = randomUUID();
-    const consumed = await tx.execute<{ commit: string; server_seed: string }>(sql`
+    const consumed = await tx.execute<{
+      id: string;
+      commit: string;
+      server_seed: string;
+    }>(sql`
       UPDATE seed_pool
-      SET used = true, used_for_pack_id = ${packId}::uuid, used_at = now()
+      SET used = true, used_at = now()
       WHERE id = (
         SELECT id FROM seed_pool
         WHERE used = false
@@ -173,10 +179,10 @@ async function mintForUser(dropId: string, userId: string, cardPool: PoolCard[])
         FOR UPDATE SKIP LOCKED
         LIMIT 1
       )
-      RETURNING commit, server_seed
+      RETURNING id, commit, server_seed
     `);
     if (!consumed[0]) throw new SeedPoolEmptyRollback();
-    const { commit, server_seed: serverSeed } = consumed[0];
+    const { id: seedPoolId, commit, server_seed: serverSeed } = consumed[0];
     const clientSeed = generateClientSeed();
 
     // 3. Roll cards via the HMAC sampler.
@@ -221,6 +227,11 @@ async function mintForUser(dropId: string, userId: string, cardPool: PoolCard[])
       })
       .returning({ id: packs.id });
     if (!pack) throw new Error('pack insert returned no row');
+
+    // 5b. Backfill seed_pool → packs FK.
+    await tx.execute(sql`
+      UPDATE seed_pool SET used_for_pack_id = ${pack.id}::uuid WHERE id = ${seedPoolId}::uuid
+    `);
 
     // 6. Insert pack_cards. Position N = HMAC slot index N.
     await tx.insert(packCards).values(

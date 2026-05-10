@@ -32,7 +32,7 @@ import {
 import { withRateLimit } from '@/lib/rate-limit/middleware';
 import { publish } from '@/lib/redis-publish';
 import { requireAuth } from '@/lib/require-auth';
-import { consumeSeed } from '@/lib/seed-pool';
+import { attachSeedToPack, consumeSeed } from '@/lib/seed-pool';
 
 const LOTTERY_WINDOW_MS = Number(process.env.LOTTERY_WINDOW_MS ?? 5_000);
 
@@ -240,11 +240,12 @@ export const POST = withErrors<{ id: string }>(
 
     // ── 2b. Provably-fair: claim a pre-published seed and pin the pack id ──
     // Pack id is generated in JS so the same value is used in (a) the HMAC
-    // payload `client_seed:pack_id:i`, (b) the seed_pool.used_for_pack_id
-    // backreference, and (c) the packs row insert below — without a second
-    // UPDATE round-trip after insert.
+    // payload `client_seed:pack_id:i` and (b) the packs row insert below.
+    // The seed_pool → packs FK is backfilled by attachSeedToPack after the
+    // packs row exists (postgres validates FKs at end-of-statement, so we
+    // can't stamp used_for_pack_id before the insert).
     const packId = randomUUID();
-    const { commit, serverSeed } = await consumeSeed(tx, packId);
+    const { seedPoolId, commit, serverSeed } = await consumeSeed(tx);
 
     // ── 3. Roll cards via the HMAC sampler. ──
     const rolled = await rollPackHmac({
@@ -297,6 +298,9 @@ export const POST = withErrors<{ id: string }>(
       })
       .returning({ id: packs.id });
     if (!pack) throw new Error('pack insert returned no row');
+
+    // ── 5b. Backfill the seed_pool → packs FK now that packs.id exists. ──
+    await attachSeedToPack(tx, seedPoolId, pack.id);
 
     // ── 6. Insert pack_cards. Position N = HMAC slot index N so the verify ──
     //       page can recompute slot N's HMAC and compare to pack_cards[N].
