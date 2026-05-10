@@ -30,3 +30,5 @@ coverage/
 # Vercel / Railway / deploy artifacts
 .vercel
 .railway
+
+LOOM_SHOT_LIST.md

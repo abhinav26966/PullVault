@@ -219,3 +219,335 @@ Honest answer in four layers, ordered by which fails first.
 **4. Pokemon TCG API rate limits.** Free tier is 1000 req/day, we use ~48. Plenty of headroom. At 50K cards (a real catalog) we'd hit the ceiling. Fix: paid tier, or migrate to TCGplayer direct if their developer program reopens.
 
 What does **not** break: the transactional core. Pack purchases, trades, and auction bids keep their guarantees regardless of load — Postgres serializes them. They get slower under contention, not wrong. This is the property that matters most given the 30% concurrency weight.
+
+---
+
+# Part B Addendum
+
+> Sections §10–§14 below extend the Part A architecture (§1–§9 above
+> stay unmodified — the Part A submission references them). Numbering
+> picks up where Part A ended; the build plan's draft references to
+> "§9 Pack Economics" map to §10 here.
+
+## 10. Pack Economics
+
+PullVault prices each pack tier so the platform expects a target margin
+(default 30%) under the published rarity weights. The reverse-engineering
+problem is: given target margin `m`, pack price `p`, and bucket-mean prices
+`μ_C/U/R/E/L`, find per-slot rarity weights that produce `EV ≤ p · (1 − m)`
+without driving win-rate to zero. Per-tier:
+
+```
+EV(tier) = Σ_slots[ slot.count · Σ_rarity( w_{slot,rarity} · μ_rarity ) ]
+```
+
+**Per-slot Lagrangian solver.** Each slot has an aspirational vector
+`w_aspire_s` (the marketed distribution — generous in rares for the HIT and
+JACKPOT slots, conservative for FILLER) and a hard floor `w_floor_s` that
+guarantees a non-zero rare/epic/legendary chance even at maximum tilt-down.
+A per-slot tilt parameter `t_s ∈ [0,1]` interpolates: `w_s(t_s) = (1 − t_s) ·
+w_floor_s + t_s · w_aspire_s`. The solver minimises Σ (1 − t_s)² ·
+leverage_s subject to the global EV constraint, where `leverage_s ≡
+aspireEV_s − floorEV_s`. With per-slot loss weights set equal to
+`leverage_s` (so leverage cancels in the KKT first-order condition),
+interior slots receive the same shadow tilt — a deliberate choice for
+deterministic float behaviour. An active-set iteration handles boundary
+clamps. We bisect
+on the global Lagrange multiplier with a fixed iteration count (50,
+no early-exit heuristics) and round all `t_s` to 1e-6 before persisting,
+so the JSONB output is byte-identical across machines and reruns.
+
+**Why this beats single-tilt.** A naive global tilt pulls every slot
+proportionally toward the floor when the constraint binds. With the
+per-slot variant, leverage-weighting concentrates margin extraction in
+the high-leverage slots (HIT / JACKPOT) — the ones that swing the most EV
+per unit of tilt — so commons stay close to advertised distribution and
+win-rate cost is ~3–5pp lower at the same target margin.
+
+**Snapshot semantics.** `packs.rarity_weights` JSONB is written inside the
+buy transaction from the active `pack_economics_snapshots` row at that
+instant. The pack-roller reads `packs.rarity_weights` at rip time — never
+the live snapshot. Existing unopened packs are immune to any later
+recompute. Recompute fires from two paths: the hourly price-refresh cron
+and the `/admin/health` "Recompute now" button; both call the same
+`recomputeAllTiers` in `@pullvault/db`. Every run writes a new
+append-only row; previous active row flips to `is_active=false`.
+
+**Calibration on the live ingest.** Rarity bucket means on the current
+pokemontcg.io snapshot (C ≈ 12¢, U ≈ 12¢, R ≈ 28¢, E ≈ 129¢, L ≈ 153¢)
+sit well below the documented assumption ($0.05 / $0.15 / $0.75 / $6.00 /
+$50.00 per rarity). The pool's high-tier ceiling is ~$11 vs the
+documented ~$50, and the L bucket holds 6 cards. The solver finds
+aspirational weights feasible at this calibration and ships them
+unchanged. The bucket-mean simulator returns win-rate = 0% across tiers
+— mathematically forced when max realised value sits below pack price.
+The card-level sampling mode added by the B4 carry-forward draws
+specific cards within the rolled bucket and gives meaningful win-rate
+distributions.
+
+**Edge cases.** A 10-card pool: the solver runs identically on thin buckets
+and warns when any bucket is empty. A single card priced > pack price:
+its bucket EV dominates and the active-set clamps the legendary weight.
+Infeasible price: `status='infeasible'`, `is_active=false`, and the notes
+field captures the reason — surfaced as a red banner in the dashboard.
+
+Reference: `packages/domain/src/economics/solver.ts`,
+`packages/db/src/economics/recompute.ts`.
+
+---
+
+## 11. Anti-Bot, Rate Limiting, Drop Fairness
+
+Three orthogonal mechanisms compose: a Lua-backed sliding-window-log rate
+limiter (atomic, per-key), a fairness-window lottery for drop opens, and
+a behavioural bot-scoring cron (decoration only, never blocks).
+
+**Sliding-window-log Lua.** One Redis key per `(scope, scope_id,
+endpoint)` storing a sorted set of request timestamps. The Lua script
+runs as a single uninterrupted EVAL — a burst of 100 concurrent requests
+sees fully serialised state with no GET-then-SET race window. Cluster-safe
+because the key uses `{user:abc}` hash tags, so all entries live on one
+shard and the ZSET operations stay single-key:
+
+```lua
+redis.call('ZREMRANGEBYSCORE', key, '-inf', now - window)
+local count = redis.call('ZCARD', key)
+if count < limit then
+  redis.call('ZADD', key, now, member)
+  redis.call('PEXPIRE', key, window + 1000)
+  return {1, limit - count - 1}
+end
+local oldest = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
+local retry = oldest[2] and ((tonumber(oldest[2]) + window) - now) or window
+return {0, math.max(0, retry)}
+```
+
+**Limits and reasoning.** `signup`: 3/hour per IP — anonymous, only IP
+budget — throttles signup-cluster bots without bothering one-off humans.
+`buy_drop`: 5/60s per user, 20/60s per IP — covers fast clickers without
+blocking legitimate excitement. `bid_auction`: 5/30s per user — also
+satisfies B3's rapid-fire-bidding detection (the 6th bid in 30s 429s).
+`buy_listing`: 10/60s per user, 30/60s per IP — listings churn faster than
+drops so the budget is roomier. Every block writes a `rate_limit_audit`
+row for forensics.
+
+**Lottery cron beats setTimeout.** The fairness window for a drop is
+`[starts_at, starts_at + LOTTERY_WINDOW_MS]` (default 5s). Buys inside
+the window enqueue into a Redis ZSET with a cryptographically random
+score; a 2-second cron pops and mints in score order. Cron is restart-safe
+by construction — a worker crash mid-drain just defers to the next tick,
+gated by `pack_drops.lottery_resolved`. An in-process `setTimeout` would
+lose state on restart and not survive horizontal scaling.
+
+**Lottery pre-window note.** The in-window check is `now < starts_at +
+LOTTERY_WINDOW_MS`, which means pre-`starts_at` buys also enqueue. This
+is intentional — early-arriving fans pre-queue with no priority advantage
+over latecomers, since the random score is independent of arrival time.
+
+**Behavioural bot-scoring.** A 5-minute cron writes `users.bot_score`
+from four signals: signup-to-first-buy delta (instant purchase scores
+up), zero-interaction signature (no mouse/keyboard events between load
+and buy, captured into `bot:sig:{userId}` Redis lists by the buy
+endpoint), user-agent diversity per IP (many UAs from one IP scores
+up), and client-seed identicality across users (activated by the B4
+schema column). Forward-looking signals to add: per-request structured
+access logs, raw user-agent fingerprints, and GeoIP-based timezone
+validation. Decoration only — never blocks; threshold 80 lights an
+orange chip on the `/admin/health` Fraud tab.
+
+Reference: `apps/web/lib/rate-limit/sliding-window.lua`,
+`apps/ws/src/jobs/lottery-resolver.ts`,
+`apps/ws/src/jobs/bot-scoring.ts`.
+
+---
+
+## 12. Auction Integrity
+
+Two layers shipped in B3: a 60-second sealed-bid window before settlement,
+and a wash-trade detector that runs after settlement to score collusive
+patterns.
+
+**Sealed-bid window.** The auction state machine extends from `OPEN →
+SETTLED` to `OPEN → SEALED → SETTLED`. The auction-closer cron flips
+`OPEN → SEALED` at `ends_at − 60s`. Bids continue to be accepted while
+sealed; the difference is purely a redaction concern: the public
+`auction:{id}` WS room broadcasts events with `amount/bidder` fields
+nulled out and an `is_sealed: true` marker. The bidder's own
+`user:{userId}` channel still receives a confirmation with their actual
+amount, so they know their bid registered. Settlement runs through the
+existing `OPEN → SETTLED` atomic path at `ends_at`.
+
+**Server-side blind beats commit-reveal here.** Cryptographic
+commit-reveal — user submits `hash(amount + nonce)`, then reveals after
+the window — is verifiable end-to-end but requires user-side state across
+two transactions and an enforcement story for users who don't reveal
+(grief vector). Server-side blinding accepts the trade-off: the server
+sees sealed bids during the 60s window. The cost is bounded (60s per
+auction, not cross-cutting) and the upside is keeping the existing
+single-transaction settlement and the bidder's UX clean — no second
+"reveal your bid" step, no abandoned bids polluting the close.
+
+**Anti-snipe + sealed coexist.** A bid in the last 30 seconds extends
+`ends_at` by 30s in an atomic UPDATE inside the bid endpoint. The sealed
+window start is computed from `ends_at − 60s` on every closer tick, so
+the extension rolls the sealed window forward in lockstep — both
+mechanisms compose without breaking each other. `extension_count` on
+the auction surfaces snipe-rate in the admin analytics.
+
+**Fat-finger guards.** Two-tier: client-side warning at 3× current bid (a
+confirmation modal — soft warning for "are you sure?" cases), server-side
+hard cap at the larger of 100× current bid and 100× market price (returns
+400 BID_TOO_HIGH). 100× is the "I fat-fingered a zero" guard, never
+legitimate.
+
+**Wash-trade detector.** Scores recently-settled auctions across 8
+weighted signals: shared signup IP, prior P2P trade history,
+account-cluster co-membership, low final-price ratio, single-bidder,
+account-age delta, prior shared-IP recurrence, and exact-minimum-
+increment win. Threshold 55 is calibrated so any two strong signals
+trigger a flag. A 5-minute cron writes `auction_flags` rows; detection
+only — flagged auctions stay SETTLED, and the admin queue at
+`/admin/auctions` lets a human triage.
+
+**Worked example.** The synthetic test we ran during B3 verification
+created two accounts from the same IP minutes apart (`shared_signup_ip`
++30, `account_age_delta_lt_7d` +15) and ran a single-bid auction with no
+contest (`single_bidder` +20). Total score: 65 ≥ 55 → flagged. The admin
+queue at `/admin/auctions` rendered the row with all three reason codes
+visible. The auction itself stayed `SETTLED` — detection only, never
+auto-cancellation.
+
+Reference: `apps/ws/src/jobs/wash-trade-detector.ts`,
+`apps/ws/src/jobs/auction-closer.ts`,
+`apps/web/app/api/auctions/[id]/bid/route.ts`.
+
+---
+
+## 13. Provably Fair Pack Openings
+
+Every pack is verifiable end-to-end by a third party — the `/verify/[packId]`
+page recomputes SHA-256 + HMAC client-side from raw inputs the server
+hands over. The server is not the oracle; the user's browser is.
+
+**Pre-committed seed pool.** A WS-side cron maintains ≥ 100 unused
+`(commit, server_seed)` rows in `seed_pool`. `commit = SHA-256(server_seed)`,
+hex of the UTF-8 encoded seed string — the same canonicalisation Web
+Crypto's `subtle.digest` produces in the browser, so the verify page's
+SHA-256 matches the stored commit byte-for-byte. The buy transaction
+claims one row with `SELECT … FOR UPDATE SKIP LOCKED LIMIT 1`. The public
+endpoint `/api/audit/commits?status=unused` exposes the unused subset
+(commits + created_at, **no server_seed leaked**), so any user can prove
+their assigned commit was already in the public ledger before their
+purchase. The server cannot have crafted a seed for their specific cards,
+because it committed to that seed before knowing which user would draw it.
+
+**Why this avoids the per-day-rotation gap.** A naive design rotates one
+server seed per day and reveals it the next day. The verification gap:
+if you buy at 23:59 and the seed reveals at 00:00, the server has a 1-minute
+window where it knows the seed and your specific outcomes before reveal.
+Pre-committed pool collapses that gap to zero — your commit is published
+before any pack draws from it, regardless of when in the day you buy.
+
+**HMAC-SHA256 sampler with byte-layout note.** A single shared module in
+`packages/domain/src/provably-fair/sampler.ts` runs in both Node and the
+browser via `globalThis.crypto.subtle`. Per slot `i` in pack `P`:
+
+```
+payload   = `${client_seed}:${P}:${i}`
+digest    = HMAC-SHA256(server_seed, payload)            // 32 bytes
+bucketF   = uint64BE(digest[0..8])  / 2^64               // [0,1)
+cardF     = uint64BE(digest[8..16]) / 2^64               // [0,1)
+bucket    = sampleByCDF(slot.weights, bucketF)
+cardId    = uniformPick(eligibleCardsByRarity[bucket]
+                          sorted by id, cardF)
+```
+
+`Uint8Array` everywhere, never `Buffer` (browser doesn't have it).
+`BigInt → Number` conversion is spec-defined identically in both runtimes
+(round to nearest, ties to even), so the fractions agree to the last bit.
+Byte-layout test vectors locked in
+`packages/domain/src/__tests__/provably-fair-sampler.test.ts:24` — a
+regression in either runtime trips the locked digest assertion.
+
+**Client-seed contribution.** The buy endpoint accepts `client_seed`
+(32–128 hex chars; default = 32 random bytes from
+`crypto.getRandomValues`). It mixes into the HMAC payload, so a flip in
+either seed changes every digest. Server-side cherry-picking is
+prevented by the commit ordering: server commits to `server_seed` before
+knowing the client_seed, then the HMAC mixes both. Lottery winners (who
+didn't submit `client_seed` at enqueue) get a random one generated at
+mint time — the audit invariant still holds because the *server*
+commit was pre-published.
+
+**Audit endpoints.** `/api/audit/commits` (public, no `server_seed`),
+`/api/audit/aggregates` (latest per (tier, rarity) for chi² verification),
+`/api/packs/[id]/verify-data` (raw row dump, no precomputed booleans —
+the comment in the route handler enforces "no `valid`, no `match`, no
+`isPre*`" as a hard invariant for future maintainers).
+
+**Trust model — what the server can and cannot do.** CAN: see your
+`client_seed` during the buy transaction. CANNOT: choose your
+`server_seed` (it was pre-published in `seed_pool` before your buy).
+CANNOT: silently swap your `server_seed` post-purchase — the verify
+page's SHA-256 step detects the mismatch with no server cooperation.
+(Verified end-to-end on production: tamper `packs.server_seed` in psql
+→ `/verify/[packId]` flips to red MISMATCH on next refresh; restore the
+seed → green again.) CANNOT: substitute revealed
+cards — `pack_cards.position N` must match the HMAC sample at slot N,
+and the verify page recomputes every slot independently.
+
+Reference: `packages/domain/src/provably-fair/sampler.ts`,
+`apps/web/app/verify/[packId]/page.tsx`,
+`apps/web/app/api/packs/[id]/verify-data/route.ts`.
+
+---
+
+## 14. Health Dashboard
+
+`/admin/health` is the operational sibling to Part A's
+`/admin/economics`. Four tabs (Economics, Fraud, Fairness, Users), SWR
+auto-refresh every 30 s, no new tables — every metric is a query over
+existing B1–B4 data.
+
+**Two statistical tests on rarity distributions, not one.** The Fairness
+tab reads the latest `pack_audit_aggregates` row per (tier, rarity) and
+runs both:
+
+```
+chi² = Σ_i (obs_i − exp_i)² / exp_i,    df = k − 1
+D    = max_b |F_obs(b) − F_exp(b)|,    λ = D · √n
+```
+
+Chi-squared p-value via the Wilson–Hilferty cube-root transform
+(maximum approximation error ~0.005 against scipy's `chi2.sf`). K-S
+p-value via the asymptotic Kolmogorov distribution `Q(λ) = 2 · Σ_{k=1..∞}
+(−1)^(k−1) · exp(−2k²λ²)` — series alternates, converges 4 orders of
+magnitude per term for λ ≥ 0.5, capped at 100 iterations and 1e-12
+convergence.
+
+**Why two tests.** Chi-squared is bucket-by-bucket: any single rarity
+diverging trips it. K-S is cumulative along the canonical C → U → R → E → L
+order: it detects systematic skew that chi² can miss when individual
+buckets stay close to expected but the cumulative shape drifts. Different
+sensitivities — a wash detected by both tests is strong consensus; a
+one-test failure is ambiguous. The dashboard surfaces that with a yellow
+"tests disagree — investigate" chip rather than picking a winner.
+
+**Alert thresholds.** α = 0.05 (standard). Both p ≥ α → green ("no
+evidence of unfairness"). Either p < α → red. Disagreement → yellow.
+Economic alert: |actual_margin − target_margin| > 0.02 → red row.
+Solver self-test failure (snapshot row with `is_active=false` and
+`notes LIKE 'self-test failed:%'`) → loud red banner above the tier
+table with the `lagrangian/tilt/delta` numbers parsed and rendered.
+Fraud: `bot_score > 80` → orange chip. Users: 7-day retention < 30%
+→ orange chip.
+
+**Multiple-testing caveat.** Running daily across 3 tiers × 2 tests = 6
+tests/day, so the family-wise false-positive rate over a week is
+~30% — operationally meaningful but not a system-blocker because
+flagged tiers go to human triage, not auto-kill. Acceptable given the
+detect-only policy.
+
+Reference: `packages/domain/src/stats/chi-squared.ts`,
+`packages/domain/src/stats/ks.ts`,
+`apps/web/app/(app)/admin/health/page.tsx`.
