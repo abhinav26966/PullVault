@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mulberry32, rollPack, type PoolCard } from '../pack-roller';
+import { mulberry32, rollPack, rollPackHmac, type PoolCard } from '../pack-roller';
 import { RARITY_ORDER, TIER_CONFIG, type Rarity, type Tier } from '../tier-config';
 
 /** Build a generous test pool with many cards in every rarity bucket. */
@@ -104,6 +104,80 @@ describe('rollPack — slots override (Part B §9 snapshot path)', () => {
       TIER_CONFIG.BRONZE.slots,
     );
     expect(explicit).toEqual(baseline);
+  });
+});
+
+describe('rollPackHmac — provably-fair path (Part B §12)', () => {
+  const SEED = 'a'.repeat(64);
+  const CLIENT = 'client-seed-fixed';
+  const PACK = 'test-pack';
+
+  it('produces N cards for each tier matching cardCount', async () => {
+    for (const tier of ['BRONZE', 'SILVER', 'GOLD'] as const) {
+      const cards = await rollPackHmac({
+        tier,
+        pool: makePool(),
+        serverSeed: SEED,
+        clientSeed: CLIENT,
+        packId: PACK,
+      });
+      expect(cards).toHaveLength(TIER_CONFIG[tier].cardCount);
+    }
+  });
+
+  it('is deterministic across repeat invocations', async () => {
+    const a = await rollPackHmac({
+      tier: 'GOLD',
+      pool: makePool(),
+      serverSeed: SEED,
+      clientSeed: CLIENT,
+      packId: PACK,
+    });
+    const b = await rollPackHmac({
+      tier: 'GOLD',
+      pool: makePool(),
+      serverSeed: SEED,
+      clientSeed: CLIENT,
+      packId: PACK,
+    });
+    expect(b).toEqual(a);
+  });
+
+  it('flips every slot when the server seed changes', async () => {
+    const a = await rollPackHmac({
+      tier: 'GOLD',
+      pool: makePool(),
+      serverSeed: SEED,
+      clientSeed: CLIENT,
+      packId: PACK,
+    });
+    const b = await rollPackHmac({
+      tier: 'GOLD',
+      pool: makePool(),
+      serverSeed: 'b'.repeat(64),
+      clientSeed: CLIENT,
+      packId: PACK,
+    });
+    // With 10 slots over a generous pool, every card should differ; allow a
+    // minor collision tolerance to keep the assertion robust.
+    let differences = 0;
+    for (let i = 0; i < a.length; i++) if (a[i]!.cardId !== b[i]!.cardId) differences++;
+    expect(differences).toBeGreaterThanOrEqual(a.length - 1);
+  });
+
+  it('preserves slotType from the slot config (FILLER/HIT/JACKPOT)', async () => {
+    const cards = await rollPackHmac({
+      tier: 'GOLD',
+      pool: makePool(),
+      serverSeed: SEED,
+      clientSeed: CLIENT,
+      packId: PACK,
+    });
+    // GOLD: 7 FILLER + 2 RARE_FLOOR + 1 JACKPOT, in that slot order. Position
+    // 0..6 should be FILLER, 7..8 RARE_FLOOR, 9 JACKPOT.
+    expect(cards.slice(0, 7).every((c) => c.slotType === 'FILLER')).toBe(true);
+    expect(cards.slice(7, 9).every((c) => c.slotType === 'RARE_FLOOR')).toBe(true);
+    expect(cards[9]!.slotType).toBe('JACKPOT');
   });
 });
 

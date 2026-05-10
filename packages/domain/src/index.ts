@@ -28,7 +28,9 @@ export {
 export {
   mulberry32,
   rollPack,
+  rollPackHmac,
   type PoolCard,
+  type RollPackHmacInput,
   type RolledCard,
   type Rng,
 } from './pack-roller';

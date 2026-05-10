@@ -1,4 +1,5 @@
 import type { SlotWeights } from './economics/types';
+import { samplePack, type PoolEntry } from './provably-fair/sampler';
 import {
   RARITY_ORDER,
   TIER_CONFIG,
@@ -123,4 +124,54 @@ export function rollPack(
     (a, b) => RARITY_ORDER.indexOf(a.rarity) - RARITY_ORDER.indexOf(b.rarity),
   );
   return rolled;
+}
+
+export interface RollPackHmacInput {
+  readonly tier: Tier;
+  readonly pool: ReadonlyArray<PoolCard>;
+  readonly serverSeed: string;
+  readonly clientSeed: string;
+  readonly packId: string;
+  /** Per-pack snapshot weights from `packs.rarity_weights`. Defaults to TIER_CONFIG. */
+  readonly slots?: readonly SlotWeights[];
+}
+
+/**
+ * Provably-fair pack roller — Part B §12.
+ *
+ * Wraps `samplePack` from `provably-fair/sampler.ts` and shapes the result into
+ * `RolledCard[]` for the buy transaction and the lottery resolver. Output is
+ * NOT sorted by rarity — `position` in `pack_cards` equals the HMAC slot index
+ * so the verify page can recompute slot N's HMAC, look up `pack_cards`
+ * position N, and compare directly. (Architecture §5.6's commons-first reveal
+ * UX still holds in practice because TIER_CONFIG declares slots
+ * commons-first; the rare HIT/JACKPOT slots come last in the slot order.)
+ *
+ * Async because the underlying SubtleCrypto.sign returns a Promise. Callers
+ * stay inside their existing transaction — `await` doesn't break the postgres
+ * transaction since drizzle's `db.transaction` is itself async.
+ */
+export async function rollPackHmac(
+  input: RollPackHmacInput,
+): Promise<RolledCard[]> {
+  const slots: readonly SlotWeights[] = input.slots ?? TIER_CONFIG[input.tier].slots;
+
+  const slotTypeBySlotIdx: SlotType[] = [];
+  for (const slot of slots) {
+    for (let i = 0; i < slot.count; i++) slotTypeBySlotIdx.push(slot.type);
+  }
+
+  const sampled = await samplePack({
+    serverSeed: input.serverSeed,
+    clientSeed: input.clientSeed,
+    packId: input.packId,
+    slots: slots.map((s) => ({ count: s.count, weights: s.weights })),
+    pool: input.pool as readonly PoolEntry[],
+  });
+
+  return sampled.map((s) => ({
+    cardId: s.cardId,
+    rarity: s.bucket,
+    slotType: slotTypeBySlotIdx[s.slotIndex]!,
+  }));
 }
