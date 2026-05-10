@@ -125,6 +125,8 @@ Two platforms because Vercel can't host long-lived sockets.
 | `POKEMON_TCG_API_KEY` | Optional |
 | `PORT` | Railway provides automatically |
 
+Part B introduces four additional env vars (`LOTTERY_WINDOW_MS`, `SEALED_WINDOW_MS`, `ECONOMICS_AUTO_RECOMPUTE`, `SEED_POOL_TARGET`). All have sane defaults and are documented in the [Part B addendum](#part-b-addendum) below.
+
 ### Cross-domain WS auth
 
 Cookies don't cross unrelated origins (Vercel ≠ Railway) regardless of `SameSite`. The browser fetches the JWT from a same-origin endpoint (`GET /api/auth/ws-token`) and forwards it via the Socket.IO handshake (`io(url, { auth: { token } })`). The WS server reads `socket.handshake.auth.token`, falling back to the cookie for same-origin local dev. Full rationale in [ARCHITECTURE.md §1](./ARCHITECTURE.md#1-system-overview).
@@ -163,6 +165,74 @@ The brief lists "multiple concurrent auctions" under P2 but it's actually suppor
 
 ---
 
+## Part B addendum
+
+Part B adds five workstreams on top of Part A. The architecture deep-dive lives in [ARCHITECTURE.md §10–§14](./ARCHITECTURE.md#part-b-addendum).
+
+- **Pack economics solver** ([§10](./ARCHITECTURE.md#10-pack-economics)) — per-slot Lagrangian solver replaces the static rarity weights. Hourly recompute against live `card_prices` writes append-only snapshots; `packs.rarity_weights` is frozen at purchase time so in-flight packs are immune.
+- **Sliding-window-log rate limiter** ([§11](./ARCHITECTURE.md#11-anti-bot-rate-limiting-drop-fairness)) — atomic Lua over Redis ZSETs. Per-endpoint user + IP budgets; a 100-concurrent-requests stress script verifies exact-count enforcement.
+- **Drop-fairness lottery** (§11) — first 5 s after `starts_at`, buys enqueue with random scores; a 2 s cron mints in score order. Pre-`starts_at` buys also queue, by design (no priority advantage from early arrival).
+- **Behavioural bot-scoring** (§11) — 5-min cron writes `users.bot_score` from four signals (signup→first-buy delta, zero-interaction, UA-diversity per IP, cross-account client-seed). Decoration only; threshold 80 → orange chip.
+- **Sealed-bid auctions** ([§12](./ARCHITECTURE.md#12-auction-integrity)) — `OPEN → SEALED → SETTLED`. At `ends_at − 60 s` the public WS room redacts amount/bidder; the bidder's private channel still confirms. Anti-snipe and sealed compose (anti-snipe extension rolls the sealed window forward in lockstep).
+- **Wash-trade detector** (§12) — 5-min cron scores 8 weighted signals; score ≥ 55 writes an `auction_flags` row. Detection-only — auctions stay SETTLED.
+- **Provably-fair pack openings** ([§13](./ARCHITECTURE.md#13-provably-fair-pack-openings)) — pre-committed seed pool, public commit ledger at `/api/audit/commits`, in-browser SHA-256 + HMAC verification at `/verify/[packId]`. Tampering with `packs.server_seed` in psql flips the verify page to MISMATCH on refresh — verified end-to-end on production.
+- **Health dashboard** ([§14](./ARCHITECTURE.md#14-health-dashboard)) — `/admin/health` with Economics / Fraud / Fairness / Users tabs. χ² + K-S over rarity distributions, 30 s SWR refresh, agreement chip surfaces test disagreement. Part A's `/admin/economics` stays unmodified.
+- **Audit aggregator** — 10-min cron writes `pack_audit_aggregates`; boot-time backfill on the WS process so the dashboard has data day one rather than after the first tick.
+
+### New endpoints
+
+**Public (no auth):**
+
+- `GET /verify/[packId]` — verification page; runs SHA-256 + HMAC in the browser
+- `GET /api/packs/[id]/verify-data` — raw row dump for the verify page (no precomputed booleans by design)
+- `GET /api/audit/commits?status=unused|used|all` — pre-published seed-commit ledger
+- `GET /api/audit/aggregates` — latest per (tier, rarity) for χ² verification
+
+**Admin (auth required, trial-scope permissive):**
+
+- `GET /admin/health?tab=economics|fraud|fairness|users` — operational dashboard
+- `GET /admin/auctions` — wash-trade flag queue + auction analytics (B3)
+- `GET /api/admin/health/{economics,fraud,fairness,users}` — data sources for the dashboard tabs
+- `POST /api/admin/economics/recompute` — manual solver tick
+- `POST /api/admin/economics/simulate?tier=…&n=…` — Monte Carlo simulator
+
+**User-facing change:**
+
+- `POST /api/drops/[id]/buy` now accepts `{ client_seed: <32–128 hex chars> }` (optional; default = 32 random bytes). During the lottery window the response is `202 { status: 'queued', position, resolveAfterMs }`; outside it, the existing `201 { packId }`.
+
+### Part B env vars
+
+| Variable | Default | Set on | Purpose |
+|---|---|---|---|
+| `LOTTERY_WINDOW_MS` | `5000` | web + ws | Lottery fairness window after a drop's `starts_at` |
+| `SEALED_WINDOW_MS` | `60000` | ws | Sealed-bid window before an auction's `ends_at` |
+| `ECONOMICS_AUTO_RECOMPUTE` | _unset_ | ws | Set to `1` to enable hourly solver recompute on the price-refresh cron |
+| `SEED_POOL_TARGET` | `100` | ws | Unused-commit count maintained by the refill cron |
+
+### Migration deploy note
+
+`pnpm db:migrate` can silently abort on migrations that `ALTER TYPE … ADD VALUE` an enum and then reference the new enum value within the same outer transaction (drizzle-kit wraps the entire run in `BEGIN`/`COMMIT`; Postgres rejects). Affects `0004_white_micromax.sql` (adds `'SEALED'` to `pullvault_auction_state` and reuses it in a unique-index predicate) and `0005_windy_captain_america.sql` (extends the FK chain that touches the same enum). `psql -f` runs each statement in its own implicit transaction, so the enum-add followed by the predicate is allowed — the conflict only arises when wrapped in a single outer `BEGIN`/`COMMIT`.
+
+If `pnpm db:migrate` aborts on production due to `ALTER TYPE ADD VALUE` in 0004 or 0005, apply via psql, then mark as applied in the journal:
+
+```bash
+# 0004 — applied + journaled
+psql "$DATABASE_URL" -f packages/db/drizzle/0004_white_micromax.sql
+HASH=$(shasum -a 256 packages/db/drizzle/0004_white_micromax.sql | awk '{print $1}')
+WHEN=$(jq -r '.entries[] | select(.tag == "0004_white_micromax") | .when' packages/db/drizzle/meta/_journal.json)
+psql "$DATABASE_URL" -c "INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ('$HASH', $WHEN);"
+
+# 0005 — same pattern
+psql "$DATABASE_URL" -f packages/db/drizzle/0005_windy_captain_america.sql
+HASH=$(shasum -a 256 packages/db/drizzle/0005_windy_captain_america.sql | awk '{print $1}')
+WHEN=$(jq -r '.entries[] | select(.tag == "0005_windy_captain_america") | .when' packages/db/drizzle/meta/_journal.json)
+psql "$DATABASE_URL" -c "INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ('$HASH', $WHEN);"
+```
+
+Subsequent `pnpm db:migrate` invocations skip these migrations because the journal `created_at` is now ≥ the migration's `when`.
+
+---
+
 ## Architecture
 
-For the deep dive on concurrency, anti-snipe mechanics, EV math, and what breaks at 10K users, see [ARCHITECTURE.md](./ARCHITECTURE.md).
+For the deep dive on concurrency, anti-snipe mechanics, EV math, what breaks at 10K users (§1–§9), and the Part B addendum covering pack economics, anti-bot, auction integrity, provably fair, and the health dashboard (§10–§14), see [ARCHITECTURE.md](./ARCHITECTURE.md).
