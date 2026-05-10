@@ -5,6 +5,7 @@ import { authenticate } from './auth';
 import { registerDisconnectHandler } from './handlers/disconnect';
 import { registerSubscribeHandler } from './handlers/subscribe';
 import { scheduleAccountCluster } from './jobs/account-cluster';
+import { backfillOnceIfEmpty, scheduleAuditAggregator } from './jobs/audit-aggregator';
 import { runAuctionCloserNow, scheduleAuctionCloser } from './jobs/auction-closer';
 import { scheduleBotScoring } from './jobs/bot-scoring';
 import { runDropActivatorNow, scheduleDropActivator } from './jobs/drop-activator';
@@ -82,6 +83,10 @@ async function main(): Promise<void> {
   await runSeedPoolRefillNow();
   scheduleSeedPoolRefill();
   console.log('[ws] seed-pool-refill scheduled (every hour on minute 0)');
+
+  await backfillOnceIfEmpty();
+  scheduleAuditAggregator();
+  console.log('[ws] audit-aggregator scheduled (every 10min)');
 
   httpServer.listen(PORT, () => {
     console.log(`[ws] listening on :${PORT}, CORS origin ${WEB_PUBLIC_URL}`);
