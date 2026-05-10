@@ -12,7 +12,6 @@ import {
 
 interface VerifyData {
   pack: { id: string; tier: string; purchasedAt: string; openedAt: string | null };
-  isPreProvablyFair: boolean;
   rarityWeights: { slots: Array<{ count: number; weights: Record<Rarity, number>; type?: string }> } | null;
   serverSeedCommit: string | null;
   serverSeed: string | null;
@@ -26,6 +25,18 @@ interface VerifyData {
   }>;
   cards: Array<{ id: string; name: string; rarity: Rarity; imageUrlSmall: string }>;
   prices: Array<{ id: string; price: number }>;
+}
+
+/** Pre-PF packs (those purchased before B4 shipped) carry NULL crypto fields.
+ *  Computed client-side so the API stays a pure data dump — no server-side
+ *  boolean about verifiability. */
+function isPreProvablyFair(data: VerifyData): boolean {
+  return (
+    data.serverSeed === null ||
+    data.serverSeedCommit === null ||
+    data.clientSeed === null ||
+    data.eligibleCardIds === null
+  );
 }
 
 interface VerifyResult {
@@ -46,7 +57,7 @@ export default function VerifyClient({ data }: { data: VerifyData }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (data.isPreProvablyFair) return;
+    if (isPreProvablyFair(data)) return;
     if (
       !data.serverSeed ||
       !data.serverSeedCommit ||
@@ -115,7 +126,7 @@ export default function VerifyClient({ data }: { data: VerifyData }) {
     };
   }, [data]);
 
-  if (data.isPreProvablyFair) {
+  if (isPreProvablyFair(data)) {
     return (
       <div className="border border-zinc-200 rounded-lg p-4 bg-zinc-50">
         <p className="font-medium">Pre-provably-fair pack — not verifiable.</p>

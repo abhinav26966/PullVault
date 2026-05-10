@@ -10,10 +10,13 @@ export const dynamic = 'force-dynamic';
  *
  * **Hard invariant — DO NOT ADD VALIDATION HERE.**
  *
- * This endpoint MUST remain a raw read of the per-pack provably-fair fields.
- * No server-side recomputation. No `valid: true`. No `{ matches: true }`.
- * No precomputed HMAC. No "this commit hashes to that seed" boolean. The
- * browser is the only oracle that decides whether the pack verifies.
+ * This endpoint MUST NOT include any pre-computed verification, validation,
+ * or status fields. The browser is the only oracle. Adding any boolean
+ * derived from the verification result is a critical violation. Even
+ * seemingly-static booleans like `isPreProvablyFair` should be derived
+ * client-side from raw data (e.g., `serverSeed === null`), not pre-computed
+ * here. Forbidden: `valid`, `match`, `verified`, `ok`, `isPre*`, anything
+ * suggesting "this commit hashes to that seed."
  *
  * If a future maintainer adds a validation flag here, the verify page can
  * silently lie because the server told it to — defeating the entire trust
@@ -49,14 +52,9 @@ export const GET = withErrors<{ id: string }>(async (_req, ctx) => {
     return NextResponse.json({ error: 'NOT_FOUND' }, { status: 404 });
   }
 
-  // Pre-PF packs (purchased before B4 shipped) have NULL crypto fields. The
-  // verify page renders "pre-PF: not verifiable" for them. We still hand
-  // back the row so the client can diagnose.
-  const isPreProvablyFair =
-    pack.serverSeedCommit === null ||
-    pack.serverSeed === null ||
-    pack.clientSeed === null ||
-    pack.eligibleCardIds === null;
+  // Pre-PF packs (purchased before B4 shipped) carry NULLs in the crypto
+  // fields. We hand back the raw nulls; verify-client derives "pre-PF"
+  // status itself from `serverSeed === null`. NO server-side boolean.
 
   // Revealed cards: the row that was actually written into pack_cards by the
   // mint transaction. Order by position so position N = HMAC slot index N
@@ -108,7 +106,6 @@ export const GET = withErrors<{ id: string }>(async (_req, ctx) => {
       purchasedAt: pack.purchasedAt,
       openedAt: pack.openedAt,
     },
-    isPreProvablyFair,
     rarityWeights: pack.rarityWeights,
     serverSeedCommit: pack.serverSeedCommit,
     serverSeed: pack.serverSeed,

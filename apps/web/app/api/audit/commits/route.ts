@@ -28,7 +28,7 @@ export const GET = withErrors(async (req) => {
   const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit') ?? 200)));
 
   if (status === 'unused') {
-    const rows = await db
+    const commits = await db
       .select({
         commit: seedPool.commit,
         createdAt: seedPool.createdAt,
@@ -37,11 +37,11 @@ export const GET = withErrors(async (req) => {
       .where(eq(seedPool.used, false))
       .orderBy(asc(seedPool.createdAt))
       .limit(limit);
-    return NextResponse.json({ status: 'unused', count: rows.length, rows });
+    return NextResponse.json({ status: 'unused', count: commits.length, commits });
   }
 
   if (status === 'used') {
-    const rows = await db
+    const commits = await db
       .select({
         commit: seedPool.commit,
         createdAt: seedPool.createdAt,
@@ -52,7 +52,7 @@ export const GET = withErrors(async (req) => {
       .where(eq(seedPool.used, true))
       .orderBy(desc(seedPool.usedAt))
       .limit(limit);
-    return NextResponse.json({ status: 'used', count: rows.length, rows });
+    return NextResponse.json({ status: 'used', count: commits.length, commits });
   }
 
   // status=all — return both, unused first (oldest), then used (newest used).
