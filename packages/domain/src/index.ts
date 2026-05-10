@@ -70,3 +70,14 @@ export {
   type SampledSlot,
   type SlotConfig as PfSlotConfig,
 } from './provably-fair/sampler';
+
+export {
+  chiSquared,
+  chiSquaredSurvival,
+  kolmogorovSmirnov,
+  kolmogorovSurvival,
+  type ChiSquaredInput,
+  type ChiSquaredResult,
+  type KsInput,
+  type KsResult,
+} from './stats';
