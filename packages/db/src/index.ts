@@ -32,6 +32,7 @@ export {
   ledgerTypeEnum,
   listingStateEnum,
   listings,
+  packAuditAggregates,
   packCards,
   packDrops,
   packEconomicsSnapshots,
@@ -39,6 +40,7 @@ export {
   PLATFORM_USER_ID,
   rarityEnum,
   rateLimitAudit,
+  seedPool,
   slotTypeEnum,
   tierEnum,
   userCardStateEnum,
@@ -56,11 +58,13 @@ import {
   cardPrices,
   cards,
   listings,
+  packAuditAggregates,
   packCards,
   packDrops,
   packEconomicsSnapshots,
   packs,
   rateLimitAudit,
+  seedPool,
   userCards,
   walletLedger,
   wallets,
@@ -115,3 +119,9 @@ export type NewRateLimitAudit = InferInsertModel<typeof rateLimitAudit>;
 
 export type AuctionFlag = InferSelectModel<typeof auctionFlags>;
 export type NewAuctionFlag = InferInsertModel<typeof auctionFlags>;
+
+export type SeedPool = InferSelectModel<typeof seedPool>;
+export type NewSeedPool = InferInsertModel<typeof seedPool>;
+
+export type PackAuditAggregate = InferSelectModel<typeof packAuditAggregates>;
+export type NewPackAuditAggregate = InferInsertModel<typeof packAuditAggregates>;

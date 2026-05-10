@@ -11,6 +11,7 @@ import { runDropActivatorNow, scheduleDropActivator } from './jobs/drop-activato
 import { runDropReplenisherNow, scheduleDropReplenisher } from './jobs/drop-replenisher';
 import { scheduleLotteryResolver } from './jobs/lottery-resolver';
 import { schedulePriceRefresh } from './jobs/price-refresh';
+import { runSeedPoolRefillNow, scheduleSeedPoolRefill } from './jobs/seed-pool-refill';
 import { scheduleWashTradeDetector } from './jobs/wash-trade-detector';
 import { startPubSub } from './pubsub';
 
@@ -77,6 +78,10 @@ async function main(): Promise<void> {
   await runDropReplenisherNow();
   scheduleDropReplenisher();
   console.log('[ws] drop-replenisher scheduled (every 12h on minute 0)');
+
+  await runSeedPoolRefillNow();
+  scheduleSeedPoolRefill();
+  console.log('[ws] seed-pool-refill scheduled (every hour on minute 0)');
 
   httpServer.listen(PORT, () => {
     console.log(`[ws] listening on :${PORT}, CORS origin ${WEB_PUBLIC_URL}`);
