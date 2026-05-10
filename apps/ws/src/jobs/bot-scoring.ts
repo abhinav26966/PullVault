@@ -21,17 +21,16 @@ import Redis from 'ioredis';
  *   4. Lottery-participation count — counter not instrumented in B2
  *   5. Timezone-consistency        — needs GeoIP signup_ip → expected tz
  *
- * Signal #7 (cross-account client_seed identicality) is wired below as a
- * no-op stub: the cron's branch exists and unit-test logic is tied to it,
- * but the SQL short-circuits while `packs.client_seed` does not exist.
- * B4 adds the column; signal #7 begins contributing automatically — no
- * further B2 work required. Keeps the cron's structure final from B2.
+ * Signal #7 (cross-account client_seed identicality) is wired below. The
+ * cron's branch exists, a column-existence guard short-circuits in dev
+ * environments without the B4 migration applied, and the cross-user
+ * collision query runs in production where `packs.client_seed` is present.
  */
 
 const SCORE_FAST_FIRST_BUY = 25;
 const SCORE_NO_INTERACTION = 20;
 const SCORE_UA_DIVERSITY = 15;
-const SCORE_CLIENT_SEED_DUPLICATE = 25; // signal #7, awaits B4
+const SCORE_CLIENT_SEED_DUPLICATE = 25; // signal #7
 
 const FAST_FIRST_BUY_MS = 60_000;
 const UA_DIVERSITY_THRESHOLD = 4;
@@ -67,12 +66,15 @@ async function readInteractionStats(userId: string): Promise<{
 }
 
 /**
- * Signal #7 stub — returns 0 today, will return SCORE_CLIENT_SEED_DUPLICATE
- * for any user whose `packs.client_seed` matches another user's. Activates
- * automatically when B4 adds the column. We expose the function so the
- * cron's structure is final and the unit test can stub the column existence.
+ * Signal #7 — returns SCORE_CLIENT_SEED_DUPLICATE for any user whose
+ * `packs.client_seed` matches a pack owned by a different user. Random
+ * 32-byte client seeds never collide (1 in 2^256); only deliberate reuse
+ * across accounts trips this signal, which is exactly the abuse pattern
+ * (one human running two accounts, copy-pasting their seed). The
+ * column-existence guard keeps the cron working in dev environments
+ * where B4 hasn't migrated yet.
  */
-async function scoreClientSeedDuplicate(_userId: string): Promise<number> {
+async function scoreClientSeedDuplicate(userId: string): Promise<number> {
   // Detect column existence at runtime via information_schema. Cheap; cached
   // implicitly by Postgres. When B4 lands, the branch flips automatically and
   // the cross-user collision check runs.
@@ -87,9 +89,27 @@ async function scoreClientSeedDuplicate(_userId: string): Promise<number> {
     (result as unknown as { exists: boolean }[]);
   const exists = Array.isArray(rows) ? rows[0]?.exists : false;
   if (!exists) return 0;
-  // B4-active branch: query for cross-user client_seed collisions. Filled in
-  // by B4's bot-scoring update; B2 ships the structure only.
-  return 0;
+
+  // Trial-scale implementation: one EXISTS-in-EXISTS per scored user (N+1).
+  // At production scale, materialize the colliding-seeds set once per cron tick
+  // and do array-membership lookup per user. Not worth doing at current pack volume.
+  const collision = await db.execute(sql`
+    SELECT EXISTS (
+      SELECT 1 FROM packs p1
+      WHERE p1.owner_id = ${userId}::uuid
+        AND p1.client_seed IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM packs p2
+          WHERE p2.owner_id <> p1.owner_id
+            AND p2.client_seed = p1.client_seed
+        )
+    ) AS has_collision
+  `);
+  const cRows = (collision as unknown as { rows?: { has_collision: boolean }[] }).rows ??
+    (collision as unknown as { has_collision: boolean }[]);
+  return Array.isArray(cRows) && cRows[0]?.has_collision
+    ? SCORE_CLIENT_SEED_DUPLICATE
+    : 0;
 }
 
 async function scoreOnce(): Promise<void> {
@@ -140,7 +160,7 @@ async function scoreOnce(): Promise<void> {
       console.error('[bot-scoring] interaction read failed', err);
     }
 
-    // Signal 7 — STUB. Activates when B4 adds packs.client_seed.
+    // Signal 7 — cross-account client_seed collision.
     score += await scoreClientSeedDuplicate(u.id);
 
     // Signal 8 — UA diversity per IP.
