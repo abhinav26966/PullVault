@@ -1,3 +1,4 @@
+import { randomBytes, randomUUID } from 'node:crypto';
 import { and, eq, gt, gte, inArray, isNull, sql } from 'drizzle-orm';
 import cron, { type ScheduledTask } from 'node-cron';
 import {
@@ -13,7 +14,7 @@ import {
 } from '@pullvault/db';
 import {
   TIER_CONFIG,
-  rollPack,
+  rollPackHmac,
   type PoolCard,
   type SlotWeights,
   type Tier,
@@ -85,9 +86,18 @@ function defaultSlotsFor(tier: Tier): SlotWeights[] {
 }
 
 interface MintOutcome {
-  readonly status: 'minted' | 'sold_out' | 'insufficient_funds';
+  readonly status: 'minted' | 'sold_out' | 'insufficient_funds' | 'seed_pool_empty';
   readonly packId?: string;
   readonly remainingInventory?: number;
+}
+
+/** Lottery winners did not submit a client_seed at enqueue, so the resolver
+ * generates one server-side at mint time. The audit invariant still holds:
+ * the *server* commit was pre-published before this mint, regardless of when
+ * the client_seed was generated. The verify page renders this client_seed
+ * as read-only on /verify/[packId]. */
+function generateClientSeed(): string {
+  return randomBytes(32).toString('hex');
 }
 
 async function mintForUser(dropId: string, userId: string, cardPool: PoolCard[]): Promise<MintOutcome> {
@@ -151,8 +161,33 @@ async function mintForUser(dropId: string, userId: string, cardPool: PoolCard[])
       throw new InsufficientFundsRollback();
     }
 
-    // 3. Roll cards.
-    const rolled = rollPack(drop.tier, cardPool, undefined, slots);
+    // 2b. Provably-fair seed claim — same shape as /api/drops/[id]/buy.
+    const packId = randomUUID();
+    const consumed = await tx.execute<{ commit: string; server_seed: string }>(sql`
+      UPDATE seed_pool
+      SET used = true, used_for_pack_id = ${packId}::uuid, used_at = now()
+      WHERE id = (
+        SELECT id FROM seed_pool
+        WHERE used = false
+        ORDER BY created_at
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1
+      )
+      RETURNING commit, server_seed
+    `);
+    if (!consumed[0]) throw new SeedPoolEmptyRollback();
+    const { commit, server_seed: serverSeed } = consumed[0];
+    const clientSeed = generateClientSeed();
+
+    // 3. Roll cards via the HMAC sampler.
+    const rolled = await rollPackHmac({
+      tier: drop.tier,
+      pool: cardPool,
+      serverSeed,
+      clientSeed,
+      packId,
+      slots,
+    });
 
     // 4. Snapshot pack EV.
     const cardIds = rolled.map((c) => c.cardId);
@@ -166,21 +201,28 @@ async function mintForUser(dropId: string, userId: string, cardPool: PoolCard[])
       0,
     );
 
-    // 5. Insert pack with rarity_weights snapshot.
+    const eligibleCardIds = cardPool.map((c) => c.id).slice().sort();
+
+    // 5. Insert pack with the per-pack provably-fair snapshot.
     const [pack] = await tx
       .insert(packs)
       .values({
+        id: packId,
         ownerId: userId,
         dropId,
         tier: drop.tier,
         pricePaid: drop.priceCents,
         packEvAtPurchase,
         rarityWeights: { slots },
+        serverSeedCommit: commit,
+        serverSeed,
+        clientSeed,
+        eligibleCardIds,
       })
       .returning({ id: packs.id });
     if (!pack) throw new Error('pack insert returned no row');
 
-    // 6. Insert pack_cards.
+    // 6. Insert pack_cards. Position N = HMAC slot index N.
     await tx.insert(packCards).values(
       rolled.map((c, i) => ({
         packId: pack.id,
@@ -213,6 +255,9 @@ async function mintForUser(dropId: string, userId: string, cardPool: PoolCard[])
     if (err instanceof InsufficientFundsRollback) {
       return { status: 'insufficient_funds' as const };
     }
+    if (err instanceof SeedPoolEmptyRollback) {
+      return { status: 'seed_pool_empty' as const };
+    }
     throw err;
   });
 }
@@ -220,6 +265,12 @@ async function mintForUser(dropId: string, userId: string, cardPool: PoolCard[])
 class InsufficientFundsRollback extends Error {
   constructor() {
     super('lottery: user has insufficient funds — rolling back');
+  }
+}
+
+class SeedPoolEmptyRollback extends Error {
+  constructor() {
+    super('lottery: seed_pool exhausted — rolling back this mint');
   }
 }
 
@@ -250,6 +301,15 @@ async function resolveDrop(dropId: string, cardPool: PoolCard[]): Promise<void> 
         JSON.stringify({ event: 'lottery_skipped', dropId, reason: 'insufficient_funds' }),
       );
       continue;
+    }
+    if (out.status === 'seed_pool_empty') {
+      // Restore the popped intent for the next tick — the seed-pool-refill cron
+      // will have run by then and topped the pool back up.
+      await r.zadd(k, score.toString(), userId);
+      console.warn(
+        `[lottery-resolver] seed_pool exhausted while minting for ${userId} on drop ${dropId} — pausing this drop's drain`,
+      );
+      break;
     }
     // d. Minted — broadcast pack_minted on the user's channel.
     await publisher.publish(

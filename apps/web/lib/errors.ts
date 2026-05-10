@@ -135,3 +135,12 @@ export class InvalidStartingBidError extends DomainError {
     super('INVALID_STARTING_BID', 'Starting bid must be a positive amount in cents.', 400);
   }
 }
+export class SeedPoolEmptyError extends DomainError {
+  constructor() {
+    super(
+      'SEED_POOL_EMPTY',
+      'Provably-fair seed pool is exhausted. Refill cron may be down. Try again in a moment.',
+      503,
+    );
+  }
+}

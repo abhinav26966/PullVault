@@ -1,6 +1,7 @@
 import 'server-only';
 import { sql } from 'drizzle-orm';
 import { db } from '@pullvault/db';
+import { SeedPoolEmptyError } from './errors';
 
 /**
  * Seed-pool consumer — Part B §12.
@@ -30,14 +31,7 @@ import { db } from '@pullvault/db';
  * single denied purchase.
  */
 
-export class SeedPoolEmptyError extends Error {
-  constructor() {
-    super(
-      'seed_pool exhausted — refill cron may be down. Buy denied to preserve provably-fair invariant.',
-    );
-    this.name = 'SeedPoolEmptyError';
-  }
-}
+export { SeedPoolEmptyError };
 
 export interface ConsumedSeed {
   readonly commit: string;

@@ -1,9 +1,16 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useChannel } from '@/hooks/use-socket';
+
+function generateClientSeed(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
 
 interface InitialDrop {
   id: string;
@@ -36,11 +43,27 @@ export default function DropBuyClient({ initial }: { initial: InitialDrop }) {
   const [serverState, setServerState] = useState<InitialDrop['state']>(
     initial.state,
   );
+  // Provably-fair client seed (Part B §12). Default = 32 random bytes (64 hex
+  // chars). Mutable so a power user can pin their own seed; the server
+  // accepts any 32–128 hex string. Generated on mount so SSR doesn't hydrate
+  // a stale value.
+  const [clientSeed, setClientSeed] = useState<string>('');
+  const [seedExpanded, setSeedExpanded] = useState(false);
+  const [seedError, setSeedError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!clientSeed) setClientSeed(generateClientSeed());
+  }, [clientSeed]);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(id);
   }, []);
+
+  const seedPreview = useMemo(
+    () => (clientSeed ? `${clientSeed.slice(0, 8)}…${clientSeed.slice(-4)}` : '—'),
+    [clientSeed],
+  );
 
   useChannel(`drop:${initial.id}`, {
     onEvent: (payload) => {
@@ -62,10 +85,18 @@ export default function DropBuyClient({ initial }: { initial: InitialDrop }) {
   const soldOut = serverState === 'SOLD_OUT' || inventoryRemaining === 0;
 
   async function buy(): Promise<void> {
+    if (!/^[0-9a-fA-F]{32,128}$/.test(clientSeed)) {
+      setSeedError('Client seed must be 32–128 hex chars.');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/api/drops/${initial.id}/buy`, { method: 'POST' });
+      const res = await fetch(`/api/drops/${initial.id}/buy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_seed: clientSeed }),
+      });
       const j = (await res.json().catch(() => ({}))) as {
         packId?: string;
         message?: string;
@@ -150,6 +181,48 @@ export default function DropBuyClient({ initial }: { initial: InitialDrop }) {
         {buttonContent}
       </button>
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
+      <div className="text-xs text-zinc-500 space-y-2">
+        <button
+          type="button"
+          onClick={() => setSeedExpanded((v) => !v)}
+          className="hover:text-zinc-700 underline-offset-2 hover:underline"
+        >
+          Provably-fair seed: <span className="font-mono">{seedPreview}</span>{' '}
+          ({seedExpanded ? 'hide' : 'change'})
+        </button>
+        {seedExpanded ? (
+          <div className="space-y-1">
+            <input
+              type="text"
+              value={clientSeed}
+              onChange={(e) => {
+                setClientSeed(e.target.value.trim());
+                setSeedError(null);
+              }}
+              spellCheck={false}
+              className="w-full font-mono text-xs px-2 py-1 border border-zinc-200 rounded"
+            />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setClientSeed(generateClientSeed());
+                  setSeedError(null);
+                }}
+                className="text-xs text-zinc-600 hover:text-zinc-900"
+              >
+                Generate new
+              </button>
+              <span className="text-xs text-zinc-400">
+                After buying, verify on /verify/&lt;packId&gt;.
+              </span>
+            </div>
+            {seedError ? (
+              <p className="text-xs text-red-600">{seedError}</p>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { and, eq, gt, gte, inArray, sql } from 'drizzle-orm';
 import {
@@ -12,7 +13,7 @@ import {
 } from '@pullvault/db';
 import {
   TIER_CONFIG,
-  rollPack,
+  rollPackHmac,
   type SlotWeights,
   type Tier,
 } from '@pullvault/domain';
@@ -31,6 +32,7 @@ import {
 import { withRateLimit } from '@/lib/rate-limit/middleware';
 import { publish } from '@/lib/redis-publish';
 import { requireAuth } from '@/lib/require-auth';
+import { consumeSeed } from '@/lib/seed-pool';
 
 const LOTTERY_WINDOW_MS = Number(process.env.LOTTERY_WINDOW_MS ?? 5_000);
 
@@ -39,9 +41,23 @@ const InteractionSig = z.object({
   keyEvents: z.number().int().min(0).max(10_000),
 });
 
+// Provably-fair client seed contribution (Part B §12). 32–128 hex chars; the
+// browser default is 64 random hex (32 bytes via crypto.getRandomValues), but
+// the user can override via the buy UI's "custom seed" input.
+const ClientSeedSchema = z
+  .string()
+  .regex(/^[0-9a-fA-F]{32,128}$/u, 'client_seed must be 32–128 hex chars');
+
 const BuyBody = z.object({
   interaction_signature: InteractionSig.optional(),
+  client_seed: ClientSeedSchema.optional(),
 });
+
+function generateRandomClientSeed(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(32)))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
 
 interface ActiveSnapshotJson {
   readonly slots: readonly SlotWeights[];
@@ -101,6 +117,12 @@ export const POST = withErrors<{ id: string }>(
       console.error('[drop-buy] interaction-signature push failed', err),
     );
   }
+
+  // Resolve the client seed once per request. If the user's body did not
+  // include one (older clients), generate a random hex so the verify page
+  // still works — the audit invariant only requires the *server* commit be
+  // pre-published, not that the client seed be user-specified.
+  const clientSeed = body.client_seed ?? generateRandomClientSeed();
 
   // Lottery fairness branch — Part B §10.
   // While the drop is OPEN and we're inside the fairness window, divert the
@@ -216,8 +238,23 @@ export const POST = withErrors<{ id: string }>(
 
     if (debited.length === 0) throw new InsufficientFundsError();
 
-    // ── 3. Roll cards (pure function, no I/O). Use the per-pack snapshot. ──
-    const rolled = rollPack(drop.tier, cardPool, undefined, slots);
+    // ── 2b. Provably-fair: claim a pre-published seed and pin the pack id ──
+    // Pack id is generated in JS so the same value is used in (a) the HMAC
+    // payload `client_seed:pack_id:i`, (b) the seed_pool.used_for_pack_id
+    // backreference, and (c) the packs row insert below — without a second
+    // UPDATE round-trip after insert.
+    const packId = randomUUID();
+    const { commit, serverSeed } = await consumeSeed(tx, packId);
+
+    // ── 3. Roll cards via the HMAC sampler. ──
+    const rolled = await rollPackHmac({
+      tier: drop.tier,
+      pool: cardPool,
+      serverSeed,
+      clientSeed,
+      packId,
+      slots,
+    });
 
     // ── 4. Snapshot pack EV: sum of rolled cards' current prices. ──
     // This is what powers the realized-margin metric in the economics
@@ -234,21 +271,35 @@ export const POST = withErrors<{ id: string }>(
       0,
     );
 
-    // ── 5. Insert packs row, including the rarity-weights snapshot. ──
+    // Snapshot the eligibility set so the verify page reproduces the exact
+    // same pool — sorted ascending so the on-disk array is canonical and the
+    // browser-side sort in the sampler matches index-by-index.
+    const eligibleCardIds = cardPool
+      .map((c) => c.id)
+      .slice()
+      .sort();
+
+    // ── 5. Insert packs row with the per-pack provably-fair snapshot. ──
     const [pack] = await tx
       .insert(packs)
       .values({
+        id: packId,
         ownerId: user.id,
         dropId,
         tier: drop.tier,
         pricePaid: drop.priceCents,
         packEvAtPurchase,
         rarityWeights: { slots },
+        serverSeedCommit: commit,
+        serverSeed,
+        clientSeed,
+        eligibleCardIds,
       })
       .returning({ id: packs.id });
     if (!pack) throw new Error('pack insert returned no row');
 
-    // ── 6. Insert pack_cards (already sorted commons-first by rollPack). ──
+    // ── 6. Insert pack_cards. Position N = HMAC slot index N so the verify ──
+    //       page can recompute slot N's HMAC and compare to pack_cards[N].
     await tx.insert(packCards).values(
       rolled.map((c, i) => ({
         packId: pack.id,
@@ -277,6 +328,11 @@ export const POST = withErrors<{ id: string }>(
 
     return { packId: pack.id, remaining: drop.remaining, tier: drop.tier };
   });
+  // SeedPoolEmptyError thrown inside the tx aborts the transaction (rolling
+  // back the inventory + wallet decrements) and bubbles to the api-handler
+  // wrapper, which surfaces it as a 503. The buy fails loudly rather than
+  // silently fabricating a non-pre-published seed — preserving the audit
+  // invariant matters more than a single denied purchase.
 
   // ── 9. Publish AFTER commit. ──
   await publish(`drop:${dropId}`, {
