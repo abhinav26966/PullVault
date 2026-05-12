@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { desc, eq, inArray, sql } from 'drizzle-orm';
 import {
   auctionFlags,
@@ -10,6 +11,10 @@ import {
   users,
 } from '@pullvault/db';
 import { requireAuth } from '@/lib/require-auth';
+
+export const metadata: Metadata = {
+  title: 'Auctions admin · PullVault',
+};
 
 export const dynamic = 'force-dynamic';
 

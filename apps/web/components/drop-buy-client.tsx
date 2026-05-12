@@ -185,11 +185,17 @@ export default function DropBuyClient({ initial }: { initial: InitialDrop }) {
         <button
           type="button"
           onClick={() => setSeedExpanded((v) => !v)}
-          className="hover:text-zinc-700 underline-offset-2 hover:underline"
+          className="hover:text-zinc-700 underline-offset-2 hover:underline text-left"
         >
-          Provably-fair seed: <span className="font-mono">{seedPreview}</span>{' '}
+          Your random contribution (provably-fair):{' '}
+          <span className="font-mono">{seedPreview}</span>{' '}
           ({seedExpanded ? 'hide' : 'change'})
         </button>
+        <p className="text-xs text-zinc-400 leading-relaxed max-w-prose">
+          This random value mixes into the pack roll. The default is fine — the
+          server cannot have known it before you submit. After buying, verify on{' '}
+          <span className="font-mono">/verify/&lt;packId&gt;</span>.
+        </p>
         {seedExpanded ? (
           <div className="space-y-1">
             <input
@@ -202,21 +208,16 @@ export default function DropBuyClient({ initial }: { initial: InitialDrop }) {
               spellCheck={false}
               className="w-full font-mono text-xs px-2 py-1 border border-zinc-200 rounded"
             />
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setClientSeed(generateClientSeed());
-                  setSeedError(null);
-                }}
-                className="text-xs text-zinc-600 hover:text-zinc-900"
-              >
-                Generate new
-              </button>
-              <span className="text-xs text-zinc-400">
-                After buying, verify on /verify/&lt;packId&gt;.
-              </span>
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setClientSeed(generateClientSeed());
+                setSeedError(null);
+              }}
+              className="text-xs text-zinc-600 hover:text-zinc-900"
+            >
+              Generate new
+            </button>
             {seedError ? (
               <p className="text-xs text-red-600">{seedError}</p>
             ) : null}

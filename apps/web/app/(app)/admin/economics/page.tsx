@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { and, avg, count, eq, inArray, isNotNull, sql, sum } from 'drizzle-orm';
 import {
   PLATFORM_USER_ID,
@@ -8,6 +9,10 @@ import {
 } from '@pullvault/db';
 import { TIER_CONFIG, computeTierEV, type Tier } from '@pullvault/domain';
 import { requireAuth } from '@/lib/require-auth';
+
+export const metadata: Metadata = {
+  title: 'Economics · PullVault',
+};
 
 export const dynamic = 'force-dynamic';
 

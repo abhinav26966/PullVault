@@ -1,6 +1,11 @@
 import { notFound } from 'next/navigation';
 import { headers } from 'next/headers';
+import type { Metadata } from 'next';
 import VerifyClient from './verify-client';
+
+export const metadata: Metadata = {
+  title: 'Verify Pack · PullVault',
+};
 
 export const dynamic = 'force-dynamic';
 

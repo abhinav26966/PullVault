@@ -1,9 +1,14 @@
 import Link from 'next/link';
+import type { Metadata } from 'next';
 import { requireAuth } from '@/lib/require-auth';
 import EconomicsTab from './economics-tab';
 import FairnessTab from './fairness-tab';
 import FraudTab from './fraud-tab';
 import UsersTab from './users-tab';
+
+export const metadata: Metadata = {
+  title: 'Health · PullVault',
+};
 
 export const dynamic = 'force-dynamic';
 

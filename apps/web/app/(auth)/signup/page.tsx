@@ -59,36 +59,45 @@ export default function SignupPage() {
           <h1 className="text-2xl font-semibold">PullVault</h1>
           <p className="text-sm text-zinc-500">Create an account. $1,000 starting balance.</p>
         </div>
-        <input
-          type="email"
-          required
-          autoComplete="email"
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="w-full border border-zinc-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-zinc-500"
-        />
-        <input
-          type="text"
-          required
-          autoComplete="username"
-          placeholder="Display name"
-          minLength={2}
-          maxLength={40}
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-          className="w-full border border-zinc-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-zinc-500"
-        />
-        <input
-          type="password"
-          required
-          autoComplete="new-password"
-          placeholder="Password (min 8 chars)"
-          minLength={8}
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="w-full border border-zinc-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-zinc-500"
-        />
+        <label className="block">
+          <span className="sr-only">Email</span>
+          <input
+            type="email"
+            required
+            autoComplete="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full border border-zinc-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-zinc-500"
+          />
+        </label>
+        <label className="block">
+          <span className="sr-only">Display name</span>
+          <input
+            type="text"
+            required
+            autoComplete="username"
+            placeholder="Display name"
+            minLength={2}
+            maxLength={40}
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            className="w-full border border-zinc-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-zinc-500"
+          />
+        </label>
+        <label className="block">
+          <span className="sr-only">Password</span>
+          <input
+            type="password"
+            required
+            autoComplete="new-password"
+            placeholder="Password (min 8 chars)"
+            minLength={8}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full border border-zinc-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-zinc-500"
+          />
+        </label>
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
         <button
           type="submit"
