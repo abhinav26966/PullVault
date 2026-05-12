@@ -167,7 +167,7 @@ The brief lists "multiple concurrent auctions" under P2 but it's actually suppor
 
 ## Part B addendum
 
-Part B adds five workstreams on top of Part A. The architecture deep-dive lives in [ARCHITECTURE.md §10–§14](./ARCHITECTURE.md#part-b-addendum).
+Part B adds five workstreams on top of Part A: a pack-economics solver that keeps the platform profitable as card prices drift, anti-bot defenses for both drops and bidding, sealed-bid auction integrity, provably-fair pack openings any user can verify in their own browser, and an operational health dashboard tying it all together. The architecture deep-dive lives in [ARCHITECTURE.md §10–§14](./ARCHITECTURE.md#part-b-addendum); the bullets below are the elevator pitch.
 
 - **Pack economics solver** ([§10](./ARCHITECTURE.md#10-pack-economics)) — per-slot Lagrangian solver replaces the static rarity weights. Hourly recompute against live `card_prices` writes append-only snapshots; `packs.rarity_weights` is frozen at purchase time so in-flight packs are immune.
 - **Sliding-window-log rate limiter** ([§11](./ARCHITECTURE.md#11-anti-bot-rate-limiting-drop-fairness)) — atomic Lua over Redis ZSETs. Per-endpoint user + IP budgets; a 100-concurrent-requests stress script verifies exact-count enforcement.

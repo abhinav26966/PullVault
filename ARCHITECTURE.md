@@ -241,28 +241,28 @@ without driving win-rate to zero. Per-tier:
 EV(tier) = Σ_slots[ slot.count · Σ_rarity( w_{slot,rarity} · μ_rarity ) ]
 ```
 
-**Per-slot Lagrangian solver.** Each slot has an aspirational vector
-`w_aspire_s` (the marketed distribution — generous in rares for the HIT and
-JACKPOT slots, conservative for FILLER) and a hard floor `w_floor_s` that
-guarantees a non-zero rare/epic/legendary chance even at maximum tilt-down.
-A per-slot tilt parameter `t_s ∈ [0,1]` interpolates: `w_s(t_s) = (1 − t_s) ·
-w_floor_s + t_s · w_aspire_s`. The solver minimises Σ (1 − t_s)² ·
-leverage_s subject to the global EV constraint, where `leverage_s ≡
-aspireEV_s − floorEV_s`. With per-slot loss weights set equal to
-`leverage_s` (so leverage cancels in the KKT first-order condition),
-interior slots receive the same shadow tilt — a deliberate choice for
-deterministic float behaviour. An active-set iteration handles boundary
-clamps. We bisect
-on the global Lagrange multiplier with a fixed iteration count (50,
-no early-exit heuristics) and round all `t_s` to 1e-6 before persisting,
-so the JSONB output is byte-identical across machines and reruns.
+**The solver in plain English.** Every slot has two endpoints — an
+*aspirational* distribution we'd love to advertise (generous in rares for
+HIT/JACKPOT, conservative for FILLER) and a *floor* that still guarantees a
+non-zero rare/epic/legendary chance. A single tilt knob per slot,
+`t_s ∈ [0, 1]`, slides between floor and aspirational, with the resulting
+weights `w_s(t_s) = (1 − t_s) · w_floor_s + t_s · w_aspire_s`. The solver
+picks a tilt vector that hits the target EV while pulling each slot as
+little as possible *away from its aspirational weights*, weighted by how
+much EV that slot can swing — so when the constraint bites, the
+high-leverage HIT and JACKPOT slots take the brunt and commons stay close
+to advertised. Under the hood it's a Lagrangian with KKT first-order
+conditions; the implementation bisects the global multiplier for 50
+iterations with no early-exit shortcuts and rounds all tilts to 1e-6
+before persisting, so the JSONB output is byte-identical across machines
+and reruns.
 
-**Why this beats single-tilt.** A naive global tilt pulls every slot
-proportionally toward the floor when the constraint binds. With the
-per-slot variant, leverage-weighting concentrates margin extraction in
-the high-leverage slots (HIT / JACKPOT) — the ones that swing the most EV
-per unit of tilt — so commons stay close to advertised distribution and
-win-rate cost is ~3–5pp lower at the same target margin.
+**Why this beats a single global tilt.** A naive "pull every slot
+proportionally toward the floor" extracts margin from the commons too —
+they're cheap, but their advertised weights are what users see most often.
+The per-slot variant concentrates the pain in slots that swing the most
+EV per unit of tilt (HIT, JACKPOT), so the user-visible distribution drifts
+less. Empirically about 3–5pp better win-rate at the same target margin.
 
 **Snapshot semantics.** `packs.rarity_weights` JSONB is written inside the
 buy transaction from the active `pack_economics_snapshots` row at that
@@ -509,29 +509,28 @@ Reference: `packages/domain/src/provably-fair/sampler.ts`,
 auto-refresh every 30 s, no new tables — every metric is a query over
 existing B1–B4 data.
 
-**Two statistical tests on rarity distributions, not one.** The Fairness
-tab reads the latest `pack_audit_aggregates` row per (tier, rarity) and
-runs both:
+**Two statistical tests, not one.** The Fairness tab reads the latest
+`pack_audit_aggregates` snapshot per tier and runs chi-squared *and*
+Kolmogorov-Smirnov. Different tests catch different kinds of unfairness:
+chi² is bucket-by-bucket, so it lights up when a single rarity diverges
+from its advertised weight. K-S is cumulative along the C → U → R → E → L
+order — it catches systematic skew (e.g. "everything is shifted one
+rarity-class down") that chi² can miss when individual buckets all stay
+close to expected but the running total drifts. When both agree the
+chip is green or red; when they disagree, yellow "investigate" — the
+disagreement is itself a signal worth surfacing, rather than picking
+a winner.
 
-```
-chi² = Σ_i (obs_i − exp_i)² / exp_i,    df = k − 1
-D    = max_b |F_obs(b) − F_exp(b)|,    λ = D · √n
-```
-
-Chi-squared p-value via the Wilson–Hilferty cube-root transform
-(maximum approximation error ~0.005 against scipy's `chi2.sf`). K-S
-p-value via the asymptotic Kolmogorov distribution `Q(λ) = 2 · Σ_{k=1..∞}
-(−1)^(k−1) · exp(−2k²λ²)` — series alternates, converges 4 orders of
-magnitude per term for λ ≥ 0.5, capped at 100 iterations and 1e-12
-convergence.
-
-**Why two tests.** Chi-squared is bucket-by-bucket: any single rarity
-diverging trips it. K-S is cumulative along the canonical C → U → R → E → L
-order: it detects systematic skew that chi² can miss when individual
-buckets stay close to expected but the cumulative shape drifts. Different
-sensitivities — a wash detected by both tests is strong consensus; a
-one-test failure is ambiguous. The dashboard surfaces that with a yellow
-"tests disagree — investigate" chip rather than picking a winner.
+The implementations live in `packages/domain/src/stats/`. Chi-squared
+sums `(obs − exp)² / exp` across rarity buckets and converts to a p-value
+via the Wilson-Hilferty cube-root transform (≤ 0.005 approximation error
+against scipy's `chi2.sf`). K-S takes the maximum cumulative gap between
+observed and expected, scales by √n, and feeds the result into the
+Kolmogorov distribution — an alternating series that converges roughly 4
+orders of magnitude per term once λ ≥ 0.5, capped at 100 iterations
+with a 1e-12 convergence threshold. Both have locked test vectors
+against scipy reference output, so any regression in either function
+fails the unit suite before deploy.
 
 **Alert thresholds.** α = 0.05 (standard). Both p ≥ α → green ("no
 evidence of unfairness"). Either p < α → red. Disagreement → yellow.
