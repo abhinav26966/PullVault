@@ -40,6 +40,18 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             >
               Economics →
             </Link>
+            <Link
+              href="/admin/health"
+              className="text-xs text-zinc-500 hover:text-zinc-900"
+            >
+              Health →
+            </Link>
+            <Link
+              href="/admin/auctions"
+              className="text-xs text-zinc-500 hover:text-zinc-900"
+            >
+              Auctions →
+            </Link>
           </div>
           <div className="flex items-center gap-4 text-sm">
             <UserMenu
