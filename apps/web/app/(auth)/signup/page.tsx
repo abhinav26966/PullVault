@@ -119,6 +119,11 @@ export default function SignupPage() {
             Sign in
           </Link>
         </p>
+        <p className="text-xs text-zinc-500 text-center">
+          <Link href="/audit" className="underline hover:text-zinc-900">
+            View the public audit log
+          </Link>
+        </p>
       </form>
     </div>
   );
