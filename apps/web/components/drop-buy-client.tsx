@@ -32,7 +32,13 @@ function fmtUsd(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
-export default function DropBuyClient({ initial }: { initial: InitialDrop }) {
+export default function DropBuyClient({
+  initial,
+  userId,
+}: {
+  initial: InitialDrop;
+  userId: string;
+}) {
   const router = useRouter();
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
@@ -43,6 +49,11 @@ export default function DropBuyClient({ initial }: { initial: InitialDrop }) {
   const [serverState, setServerState] = useState<InitialDrop['state']>(
     initial.state,
   );
+  // True from the moment a 202 queued response lands until the lottery
+  // resolves (pack_minted / lottery_lost) or the drop transitions to
+  // SOLD_OUT. Disables the Buy button and changes its label so the user
+  // doesn't double-click while their intent is sitting in the Redis ZSET.
+  const [queued, setQueued] = useState(false);
   // Provably-fair client seed (Part B §12). Default = 32 random bytes (64 hex
   // chars). Mutable so a power user can pin their own seed; the server
   // accepts any 32–128 hex string. Generated on mount so SSR doesn't hydrate
@@ -70,10 +81,51 @@ export default function DropBuyClient({ initial }: { initial: InitialDrop }) {
       if (typeof payload.inventoryRemaining === 'number') {
         setInventoryRemaining(payload.inventoryRemaining);
       }
-      if (payload.soldOut === true) setServerState('SOLD_OUT');
+      if (payload.soldOut === true) {
+        setServerState('SOLD_OUT');
+        // Belt-and-braces: if pack_minted/lottery_lost didn't reach us on the
+        // user channel (subscriber race, transient drop, whatever), the
+        // drop-channel sold_out broadcast still wakes us up and clears the
+        // queued state so the button doesn't stay frozen.
+        setQueued(false);
+      }
       if (payload.state === 'OPEN') setServerState('OPEN');
     },
     onReconnect: () => router.refresh(),
+  });
+
+  // Subscribe to the user's own channel so the lottery resolver's
+  // pack_minted (winner) and lottery_lost (loser) events flip the UI
+  // immediately — including the queued state and the winner redirect.
+  // UserToastSubscriber in the (app) layout ALSO handles these events
+  // (with the same toast IDs so react-hot-toast dedups), but this
+  // local subscription guarantees the drop page reacts even if the
+  // global subscriber misses an event for any reason.
+  useChannel(`user:${userId}`, {
+    onEvent: (payload) => {
+      const ev = (payload as { event?: string }).event;
+      const packId = (payload as { packId?: unknown }).packId;
+      if (ev === 'pack_minted' && typeof packId === 'string') {
+        setQueued(false);
+        toast.success('🎉 Pack acquired — opening…', {
+          id: `pack-minted-${packId}`,
+        });
+        router.replace(`/packs/${packId}`);
+        router.refresh();
+      } else if (ev === 'lottery_lost') {
+        setQueued(false);
+        toast("Didn't win this lottery — try the next drop", {
+          id: `lottery-lost-${initial.id}`,
+          icon: '🎰',
+          duration: 5000,
+        });
+      } else if (ev === 'lottery_skipped') {
+        setQueued(false);
+        toast.error('Lottery skipped — insufficient funds at draw time', {
+          id: `lottery-skipped-${initial.id}`,
+        });
+      }
+    },
   });
 
   const startsAtMs = new Date(initial.startsAt).getTime();
@@ -106,12 +158,13 @@ export default function DropBuyClient({ initial }: { initial: InitialDrop }) {
         setError(j.message ?? `Buy failed (${res.status})`);
         return;
       }
-      // 202 queued — lottery window is active. The resolver cron will drain
-      // the queue at starts_at + LOTTERY_WINDOW_MS and broadcast pack_minted
-      // (winner) or lottery_lost (loser) on the user channel. Toasts and the
-      // /packs/[id] redirect are handled by UserToastSubscriber.
+      // 202 queued — lottery window is active. Set the local queued state
+      // so the button locks out further clicks until the resolver fires
+      // pack_minted / lottery_lost on the user channel (handled above).
       if (j.status === 'queued') {
+        setQueued(true);
         toast('Queued for lottery — waiting for the resolver…', {
+          id: `lottery-queued-${initial.id}`,
           icon: '⏳',
           duration: 8000,
         });
@@ -133,6 +186,13 @@ export default function DropBuyClient({ initial }: { initial: InitialDrop }) {
       <>
         <span className="spinner" />
         Buying…
+      </>
+    );
+  } else if (queued) {
+    buttonContent = (
+      <>
+        <span className="spinner" />
+        Queued for lottery…
       </>
     );
   } else if (soldOut) buttonContent = 'Sold out';
@@ -187,7 +247,7 @@ export default function DropBuyClient({ initial }: { initial: InitialDrop }) {
       </div>
       <button
         onClick={buy}
-        disabled={!isOpen || soldOut || busy}
+        disabled={!isOpen || soldOut || busy || queued}
         className="w-full bg-zinc-900 text-white rounded-md py-3 font-medium hover:bg-zinc-800 disabled:opacity-50 inline-flex items-center justify-center transition-colors"
       >
         {buttonContent}

@@ -40,17 +40,26 @@ export default function UserToastSubscriber({ userId }: { userId: string }) {
       console.debug('[user-toast] received event', ev, payload);
 
       if (ev === 'pack_minted' && typeof packId === 'string') {
-        // Lottery winner — redirect to the new pack the same way the direct
-        // buy path does, plus a confirmation toast.
+        // Lottery winner. If the user is on the drop page, DropBuyClient
+        // handles the toast + redirect via its own user-channel subscription;
+        // we skip here to avoid a double navigation. The toast `id` would
+        // dedupe react-hot-toast either way, but skipping the router.push
+        // avoids a pointless second navigation.
         router.refresh();
+        if (pathname?.startsWith('/drops/')) return;
         toast.success('🎉 Pack acquired — opening…', {
+          id: `pack-minted-${packId}`,
           duration: WALLET_TOAST_DURATION_MS,
         });
         router.push(`/packs/${packId}`);
         return;
       }
       if (ev === 'lottery_lost') {
+        // Same logic — DropBuyClient handles its own page; we cover any
+        // other page the user might have navigated to.
+        if (pathname?.startsWith('/drops/')) return;
         toast("Didn't win this lottery — try the next drop", {
+          id: `lottery-lost-${(payload as { dropId?: unknown }).dropId ?? 'unknown'}`,
           icon: '🎰',
           duration: WALLET_TOAST_DURATION_MS,
         });

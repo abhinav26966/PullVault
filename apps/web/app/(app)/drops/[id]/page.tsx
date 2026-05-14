@@ -10,6 +10,7 @@ import {
 } from '@pullvault/domain';
 import { PackTile } from '@/components/pack-tile';
 import DropBuyClient from '@/components/drop-buy-client';
+import { requireAuth } from '@/lib/require-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,6 +36,7 @@ export default async function DropDetailPage({
 }: {
   params: { id: string };
 }) {
+  const user = await requireAuth();
   const [drop] = await db
     .select()
     .from(packDrops)
@@ -100,7 +102,7 @@ export default async function DropDetailPage({
             </p>
           </div>
 
-          <DropBuyClient initial={initial} />
+          <DropBuyClient initial={initial} userId={user.id} />
         </div>
       </div>
     </div>
