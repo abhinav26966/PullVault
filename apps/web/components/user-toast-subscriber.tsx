@@ -35,8 +35,27 @@ export default function UserToastSubscriber({ userId }: { userId: string }) {
       const finalBid = (payload as { finalBid?: unknown }).finalBid;
       const netCents = (payload as { netCents?: unknown }).netCents;
       const priceCents = (payload as { priceCents?: unknown }).priceCents;
+      const packId = (payload as { packId?: unknown }).packId;
 
       console.debug('[user-toast] received event', ev, payload);
+
+      if (ev === 'pack_minted' && typeof packId === 'string') {
+        // Lottery winner — redirect to the new pack the same way the direct
+        // buy path does, plus a confirmation toast.
+        router.refresh();
+        toast.success('🎉 Pack acquired — opening…', {
+          duration: WALLET_TOAST_DURATION_MS,
+        });
+        router.push(`/packs/${packId}`);
+        return;
+      }
+      if (ev === 'lottery_lost') {
+        toast("Didn't win this lottery — try the next drop", {
+          icon: '🎰',
+          duration: WALLET_TOAST_DURATION_MS,
+        });
+        return;
+      }
 
       if (ev === 'outbid' && typeof auctionId === 'string') {
         // Refund moved held → available; layout needs to re-fetch.

@@ -99,10 +99,22 @@ export default function DropBuyClient({ initial }: { initial: InitialDrop }) {
       });
       const j = (await res.json().catch(() => ({}))) as {
         packId?: string;
+        status?: string;
         message?: string;
       };
       if (!res.ok) {
         setError(j.message ?? `Buy failed (${res.status})`);
+        return;
+      }
+      // 202 queued — lottery window is active. The resolver cron will drain
+      // the queue at starts_at + LOTTERY_WINDOW_MS and broadcast pack_minted
+      // (winner) or lottery_lost (loser) on the user channel. Toasts and the
+      // /packs/[id] redirect are handled by UserToastSubscriber.
+      if (j.status === 'queued') {
+        toast('Queued for lottery — waiting for the resolver…', {
+          icon: '⏳',
+          duration: 8000,
+        });
         return;
       }
       if (j.packId) {
