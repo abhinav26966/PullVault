@@ -290,6 +290,13 @@ async function resolveDrop(dropId: string, cardPool: PoolCard[]): Promise<void> 
   const k = lotteryKey(dropId);
 
   let lastDropState: 'live' | 'sold_out' = 'live';
+  const winnerIds: string[] = [];
+  const loserIds: string[] = [];
+  // Map of winner userId → packId so the drop-channel broadcast can carry
+  // enough info for a winner whose user:{userId} pack_minted event didn't
+  // arrive at the client (WS subscribe race) to still see the right toast.
+  const winnerPackIds: Record<string, string> = {};
+
   for (;;) {
     // a. ZPOPMIN — atomic pop of the lowest-score (= "first in queue" lottery winner).
     const popped = await r.zpopmin(k, 1);
@@ -323,6 +330,12 @@ async function resolveDrop(dropId: string, cardPool: PoolCard[]): Promise<void> 
       break;
     }
     // d. Minted — broadcast pack_minted on the user's channel.
+    // out.packId is guaranteed string when status === 'minted' (all other
+    // status cases break/continue above), but the MintOutcome interface
+    // declares it optional, so we assert here.
+    const mintedPackId = out.packId!;
+    winnerIds.push(userId);
+    winnerPackIds[userId] = mintedPackId;
     await publisher.publish(
       `user:${userId}`,
       JSON.stringify({
@@ -344,6 +357,7 @@ async function resolveDrop(dropId: string, cardPool: PoolCard[]): Promise<void> 
     if (!r2 || r2.length === 0) break;
     for (let i = 0; i < r2.length; i += 2) {
       const loserId = r2[i]!;
+      loserIds.push(loserId);
       await publisher.publish(
         `user:${loserId}`,
         JSON.stringify({ event: 'lottery_lost', dropId }),
@@ -358,9 +372,19 @@ async function resolveDrop(dropId: string, cardPool: PoolCard[]): Promise<void> 
     .where(eq(packDrops.id, dropId));
 
   // Publish drop-channel update so the public drops page can react.
+  // Includes winnerIds + loserIds + the winner→packId map so the
+  // drop-buy-client has a fallback toast trigger when the per-user
+  // pack_minted / lottery_lost event misses a client (a documented
+  // Socket.IO subscribe race that's hard to fix from the React side).
   await publisher.publish(
     `drop:${dropId}`,
-    JSON.stringify({ event: 'lottery_resolved', soldOut: lastDropState === 'sold_out' }),
+    JSON.stringify({
+      event: 'lottery_resolved',
+      soldOut: lastDropState === 'sold_out',
+      winnerIds,
+      loserIds,
+      winnerPackIds,
+    }),
   );
 }
 

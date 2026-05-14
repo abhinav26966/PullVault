@@ -90,6 +90,43 @@ export default function DropBuyClient({
         setQueued(false);
       }
       if (payload.state === 'OPEN') setServerState('OPEN');
+
+      // Drop-channel `lottery_resolved` carries winnerIds + loserIds + a
+      // winnerId→packId map. The per-user pack_minted / lottery_lost events
+      // on user:{userId} are the fast/preferred path (and fire first when
+      // they land), but a subtle Socket.IO subscribe race in production can
+      // skip them. Use the drop-channel payload as the fallback toast
+      // trigger. Toast IDs match the user-channel handler so react-hot-toast
+      // dedups if both paths fire.
+      if (payload.event === 'lottery_resolved') {
+        const winnerIds = Array.isArray((payload as { winnerIds?: unknown }).winnerIds)
+          ? ((payload as { winnerIds?: string[] }).winnerIds as string[])
+          : [];
+        const loserIds = Array.isArray((payload as { loserIds?: unknown }).loserIds)
+          ? ((payload as { loserIds?: string[] }).loserIds as string[])
+          : [];
+        const winnerPackIds = ((payload as { winnerPackIds?: Record<string, string> })
+          .winnerPackIds ?? {});
+
+        if (winnerIds.includes(userId)) {
+          setQueued(false);
+          const myPackId = winnerPackIds[userId];
+          if (myPackId) {
+            toast.success('🎉 Pack acquired — opening…', {
+              id: `pack-minted-${myPackId}`,
+            });
+            router.replace(`/packs/${myPackId}`);
+            router.refresh();
+          }
+        } else if (loserIds.includes(userId)) {
+          setQueued(false);
+          toast("Didn't win this lottery — try the next drop", {
+            id: `lottery-lost-${initial.id}`,
+            icon: '🎰',
+            duration: 5000,
+          });
+        }
+      }
     },
     onReconnect: () => router.refresh(),
   });
