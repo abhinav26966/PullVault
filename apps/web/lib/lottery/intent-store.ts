@@ -70,7 +70,14 @@ export async function enqueueIntent(
   // NX: only insert if userId is not already a member.
   await client.zadd(k, 'NX', score.toString(), userId);
   // PEXPIRE keeps the queue tidy if the resolver cron fails repeatedly.
-  await client.pexpire(k, fairnessWindowMs * 4);
+  // ARCHITECTURE §11 explicitly allows pre-window clicks (they enqueue with
+  // no priority advantage). For starts_at = NOW + N seconds workflows, the
+  // entry must survive ~N seconds before the resolver drains. The previous
+  // `fairnessWindowMs * 4 = 20s` was too tight for any N > 15s — entries
+  // expired before the resolver fired. Generous TTL (10 minutes) covers any
+  // reasonable pre-window pattern while still bounding stale-entry lifetime
+  // if the cron is genuinely broken.
+  await client.pexpire(k, Math.max(fairnessWindowMs * 4, 10 * 60 * 1000));
   const position = await client.zcount(k, '-inf', score.toString());
   return { score, position };
 }
