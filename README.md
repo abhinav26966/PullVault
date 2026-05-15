@@ -235,6 +235,109 @@ Subsequent `pnpm db:migrate` invocations skip these migrations because the journ
 
 ---
 
+## Demo runbook — reproducing the Part B mechanics
+
+Operational guide for replaying the Part B demo against the deployed app (or a local checkout). Concise on purpose — each section is a single mechanic with copy-paste commands.
+
+### Setup (once per shell)
+
+All `psql` commands assume `DATABASE_URL` is loaded from `.env.local`. All `curl` commands need an authenticated session cookie:
+
+```bash
+set -a && source .env.local && set +a
+
+curl -s -c cookie.txt -X POST https://pull-vault-web-goeq.vercel.app/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"alice@test.com","password":"DemoLoom!2026"}' > /dev/null
+```
+
+### Test users
+
+| Email | Password | Notes |
+|---|---|---|
+| `alice@test.com` | `DemoLoom!2026` | seller in the staged auctions |
+| `bob@test.com` | `DemoLoom!2026` | bidder counterpart |
+
+Or sign up fresh — every new user gets a $1000 signup bonus.
+
+### Fire a drop's lottery window (B §11)
+
+Stage an OPEN drop with a near-future `starts_at`. Pre-window Buy clicks enqueue with cryptographically random tickets; the resolver cron drains at `starts_at + LOTTERY_WINDOW_MS`.
+
+```bash
+psql "$DATABASE_URL" -c "UPDATE pack_drops SET state='OPEN', starts_at = now() + interval '60 seconds', lottery_resolved = false, inventory_remaining = 1 WHERE id = '<DROP_ID>';"
+```
+
+Open `/drops/<DROP_ID>` in two browser windows (different users). Click **Buy** on each. Wait ~65 seconds. One window toasts 🎉 *Pack acquired* + redirects to `/packs/<id>`. The other toasts 🎰 *Didn't win this lottery*. Inventory and SOLD_OUT state propagate over the `drop:<id>` WS channel.
+
+### Sealed-bid auction window (B §12)
+
+```bash
+psql "$DATABASE_URL" -c "UPDATE auctions SET ends_at = now() + interval '120 seconds', state='OPEN' WHERE id = '<AUCTION_ID>';"
+```
+
+Open `/auctions/<AUCTION_ID>` in two windows. Bid in the first 60 seconds — amount + bidder visible publicly. At `ends_at − 60s` the banner flips to **SEALED**; bid again — the bidder's private toast confirms their amount, the public room redacts both fields. Settles at `ends_at` via the same atomic path as Part A.
+
+### Tamper / restore a verify pack (B §13)
+
+```bash
+PACK_ID=<pack-id>   # buy a pack and copy the id from the /packs/<id> URL
+ORIGINAL_SEED=$(psql "$DATABASE_URL" -t -A -c "SELECT server_seed FROM packs WHERE id = '$PACK_ID';" | head -1)
+
+# 1) Open https://pull-vault-web-goeq.vercel.app/verify/$PACK_ID — confirm green.
+
+# 2) Tamper
+psql "$DATABASE_URL" -c "UPDATE packs SET server_seed = 'deadbeef0000000000000000000000000000000000000000000000000000dead' WHERE id = '$PACK_ID';"
+
+# 3) Refresh verify page → MISMATCH (every per-slot row red). Server sent no signal — browser caught it.
+
+# 4) Restore
+psql "$DATABASE_URL" -c "UPDATE packs SET server_seed = '$ORIGINAL_SEED' WHERE id = '$PACK_ID';"
+
+# 5) Refresh verify page → green.
+```
+
+### Trigger an economics recompute (B §10)
+
+```bash
+curl -X POST -b cookie.txt 'https://pull-vault-web-goeq.vercel.app/api/admin/economics/recompute'
+```
+
+Or click **Recompute now** on `/admin/health?tab=economics`. Writes a new append-only row to `pack_economics_snapshots` per tier; the previous active row flips to `is_active=false`. In-flight unopened packs keep their original weights — admin reconfig can't retroactively change anyone's odds.
+
+### Run the pack simulator (B §10)
+
+```bash
+curl -X POST -b cookie.txt \
+  'https://pull-vault-web-goeq.vercel.app/api/admin/economics/simulate?tier=GOLD&n=10000' \
+  | jq '.result'
+```
+
+Runs 10,000 fake openings against current `card_prices`. Returns `meanCents`, `marginActual`, `winRate`, percentile distribution. Use it to catch an infeasible solver configuration before it goes live.
+
+### Inspect the wash-trade flag queue (B §12)
+
+Cron runs every 5 minutes automatically. View flagged auctions at `/admin/auctions` — each shows the score and contributing reason chips (`shared_signup_ip` +30, `account_age_delta_lt_7d` +15, `single_bidder` +20, etc.). Detection-only — flagged auctions stay `SETTLED`; operator decides whether to escalate.
+
+### Reconcile the wallet ledger (A §5)
+
+```bash
+pnpm -F @pullvault/web verify-ledger      # aggregate Σ check across all wallets
+pnpm -F @pullvault/web verify-activity    # per-user event replay with running balance
+```
+
+Both green → `SUM(wallet_ledger.amount) == SUM(wallets.balance_available + balance_held)` exactly, including the platform wallet. Re-runnable from the command line; same invariant powers the green badge on `/admin/economics`.
+
+### Rate-limiter stress test
+
+```bash
+pnpm -F @pullvault/web rate-limit-stress
+```
+
+Fires 100 concurrent requests at the sliding-window-log Lua. Expects exact-count enforcement — first N succeed, rest 429 — proving the atomic single-EVAL has no GET-then-SET race.
+
+---
+
 ## Architecture
 
 For the deep dive on concurrency, anti-snipe mechanics, EV math, what breaks at 10K users (§1–§9), and the Part B addendum covering pack economics, anti-bot, auction integrity, provably fair, and the health dashboard (§10–§14), see [ARCHITECTURE.md](./ARCHITECTURE.md).
