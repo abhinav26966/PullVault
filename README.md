@@ -8,7 +8,9 @@
 
 **Source:** https://github.com/abhinav26966/PullVault
 
-**Walkthrough:** https://drive.google.com/file/d/1e-XvsPCadu4tSGXFAxc7bnNiq4a_syjj/view?usp=sharing
+**Part A walkthrough:** https://drive.google.com/file/d/1e-XvsPCadu4tSGXFAxc7bnNiq4a_syjj/view?usp=sharing
+
+**Part B walkthrough:** https://drive.google.com/file/d/1QheJ8WGpI37FblulhIrRJdgZ61JOyri4/view?usp=sharing
 
 ---
 
